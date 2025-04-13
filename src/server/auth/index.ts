@@ -3,8 +3,14 @@ import { cache } from "react";
 
 import { authConfig } from "./config";
 
-const { auth: uncachedAuth, handlers, signIn, signOut } = NextAuth(authConfig);
+// Create a single instance of NextAuth
+const nextAuth = NextAuth(authConfig);
 
-const auth = cache(uncachedAuth);
+// Cache the auth function using React's cache
+const auth = cache(nextAuth.auth);
 
-export { auth, handlers, signIn, signOut };
+// Export the auth function
+export { auth };
+
+// Export signIn and signOut for client usage (if needed)
+export const { signIn, signOut } = nextAuth;

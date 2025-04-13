@@ -52,6 +52,8 @@ export const users = createTable("user", {
 
 export const usersRelations = relations(users, ({ many }) => ({
   accounts: many(accounts),
+  sessions: many(sessions),
+  gameSaves: many(gameSaves),
 }));
 
 export const accounts = createTable(
@@ -114,3 +116,34 @@ export const verificationTokens = createTable(
     compoundKey: primaryKey({ columns: [vt.identifier, vt.token] }),
   })
 );
+
+export const gameSaves = createTable(
+  "game_save",
+  {
+    id: int("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+    userId: text("user_id", { length: 255 })
+      .notNull()
+      .references(() => users.id),
+    createdAt: int("created_at", { mode: "timestamp" })
+      .default(sql`(unixepoch())`)
+      .notNull(),
+    updatedAt: int("updated_at", { mode: "timestamp" })
+      .default(sql`(unixepoch())`)
+      .notNull(),
+    gamePhase: text("game_phase", { length: 50 }).notNull().default("sprite"),
+    spriteDescription: text("sprite_description"),
+    spriteUrl: text("sprite_url"),
+    gameTheme: text("game_theme"),
+    currentStory: text("current_story"),
+    currentChoices: text("current_choices"),
+    currentBackgroundDescription: text("current_background_description"),
+    currentBackgroundImageUrl: text("current_background_image_url"),
+  },
+  (table) => ({
+    userIdx: index("gameSave_userId_idx").on(table.userId),
+  })
+);
+
+export const gameSavesRelations = relations(gameSaves, ({ one }) => ({
+  user: one(users, { fields: [gameSaves.userId], references: [users.id] }),
+}));
