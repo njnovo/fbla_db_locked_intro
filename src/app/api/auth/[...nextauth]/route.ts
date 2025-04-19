@@ -1,8 +1,9 @@
 import NextAuth from "next-auth";
 import { authOptions } from "~/server/auth";
 
-// Create the NextAuth handler
-const handler = NextAuth(authOptions);
-
-// Export the route handlers
-export { handler as GET, handler as POST };
+/**
+ * NextAuth.js Route Handler
+ * @see https://next-auth.js.org/configuration/nextjs#in-app-router
+ */
+const { handlers } = NextAuth(authOptions);
+export const { GET, POST } = handlers;
