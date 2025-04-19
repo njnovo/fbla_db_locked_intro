@@ -8,9 +8,13 @@ import { db } from "~/server/db"; // Import db instance
 import { gameSaves } from "~/server/db/schema"; // Import gameSaves schema
 import { eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server"; // For error handling
-// Import your AI API client setup here (e.g., OpenAI)
-// import { openai } from "~/server/ai"; // Assuming you have this setup
+import OpenAI from "openai"; // Import OpenAI client
 import { env } from "~/env"; // For API keys
+
+// Initialize OpenAI client
+const openai = new OpenAI({
+  apiKey: env.OPENAI_API_KEY,
+});
 
 // Placeholder function - replace with actual OpenAI API call
 async function generateImageWithAI(prompt: string): Promise<string> {
@@ -41,8 +45,14 @@ async function generateImageWithAI(prompt: string): Promise<string> {
 }
 
 // Placeholder function - replace with actual OpenAI API call
-async function generateStoryWithAI(input: { theme?: string, previousStory?: string, choice?: string, spriteDesc?: string }): Promise<{ story: string; choices: { id: number; text: string }[], backgroundDescription: string }> {
-    console.log(`AI TEXT API CALL (MOCK): Generating story part for input:`, input);
+async function generateStoryWithAI(input: { 
+  theme?: string, 
+  previousStory?: string, 
+  choice?: string, 
+  spriteDesc?: string,
+  conversationHistory?: Array<{role: "system" | "user" | "assistant", content: string}>
+}): Promise<{ story: string; choices: { id: number; text: string }[], backgroundDescription: string }> {
+    console.log(`AI TEXT API CALL: Generating story part for input:`, input);
     if (!env.OPENAI_API_KEY) {
        console.warn("OPENAI_API_KEY not set. Returning placeholder.");
        return {
@@ -51,37 +61,82 @@ async function generateStoryWithAI(input: { theme?: string, previousStory?: stri
            backgroundDescription: `A placeholder background for ${input.theme ?? 'adventure'}`
        }
     }
-    // --- Actual OpenAI Chat Completion Call Would Go Here ---
-    // Construct a prompt based on the input (theme, previous state, choice)
-    // Example using a hypothetical openai client:
-    // const response = await openai.chat.completions.create({
-    //   model: "gpt-4", // Or your desired model
-    //   messages: [
-    //     { role: "system", content: "You are a choose-your-own-adventure game master." },
-    //     // Add more context messages based on input...
-    //     { role: "user", content: "Generate the next part of the story..." }
-    //   ],
-    //   // Add instructions for response format (e.g., JSON with story, choices, bg desc)
-    // });
-    // const result = JSON.parse(response.choices[0]?.message?.content ?? '{}');
-    // return result; // Assuming the AI returns the correct structure
-    // ---------------------------------------------------------
-    await new Promise(resolve => setTimeout(resolve, 1200)); // Simulate delay
-    const baseStory = input.choice
-        ? `(Placeholder) Following choice '${input.choice}', something else happens in the ${input.theme} setting.`
-        : `(Placeholder) Starting the adventure in a ${input.theme} world with a character like ${input.spriteDesc}.`;
+    
+    // Build conversation history if provided, otherwise create a basic history
+    const messages = input.conversationHistory || [];
+    
+    // If no history provided, add system message and initial context
+    if (messages.length === 0) {
+      messages.push({ 
+        role: "system", 
+        content: "You are a choose-your-own-adventure game master. Generate engaging story segments with 2-4 choices for the player. For each response, provide a JSON object with three fields: 'story' (the current narrative), 'choices' (an array of options each with 'id' and 'text'), and 'backgroundDescription' (a detailed description for image generation)."
+      });
+      
+      // Add initial theme and character context
+      if (input.theme || input.spriteDesc) {
+        messages.push({
+          role: "user",
+          content: `I want to play a ${input.theme || "fantasy"} adventure with a character described as: ${input.spriteDesc || "a brave adventurer"}.`
+        });
+      }
+    }
+    
+    // Add the current choice/request to the conversation
+    if (input.choice) {
+      messages.push({
+        role: "user",
+        content: `I choose: ${input.choice}`
+      });
+    }
+    
+    // Add a structured prompt for the response format
+    messages.push({
+      role: "user",
+      content: `Generate the next part of the story${input.previousStory ? " following from: " + input.previousStory : ""}. Include a vivid scene description, what happens next, and 2-4 choices for me. Return your response as a valid JSON object with these fields: "story" (the narrative text), "choices" (array of options with "id" and "text" fields), and "backgroundDescription" (a detailed visual description of the current scene for image generation).`
+    });
+    
+    try {
+      // Call OpenAI API
+      const response = await openai.chat.completions.create({
+        model: "gpt-4", // Or your desired model
+        messages: messages as any, // Type assertion to avoid TypeScript issues
+        response_format: { type: "json_object" }, // Request JSON response
+      });
+      
+      // Parse the response
+      const result = JSON.parse(response.choices[0]?.message?.content ?? '{}');
+      
+      // Add AI's response to conversation history for next time
+      messages.push({
+        role: "assistant",
+        content: response.choices[0]?.message?.content || ""
+      });
+      
+      // Validate that the response has the expected structure
+      if (!result.story || !result.choices || !result.backgroundDescription) {
+        throw new Error("Invalid response format from AI");
+      }
+      
+      return result;
+    } catch (error) {
+      console.error("Error calling OpenAI:", error);
+      
+      // Fallback to mock data
+      const baseStory = input.choice
+        ? `Following choice '${input.choice}', something else happens in the ${input.theme} setting.`
+        : `Starting the adventure in a ${input.theme} world with a character like ${input.spriteDesc}.`;
 
-    // Generate slightly varying choices for testing
-    const choiceNum = Math.floor(Math.random() * 3) + 1;
-    return {
+      const choiceNum = Math.floor(Math.random() * 3) + 1;
+      return {
         story: `${baseStory} What is the next move? (Random choice: ${choiceNum})`,
         choices: [
-            { id: 1, text: `Option A (${choiceNum}) for ${input.theme}` },
-            { id: 2, text: `Option B (${choiceNum}) for ${input.theme}` },
-            { id: 3, text: `Option C (${choiceNum}) for ${input.theme}` }
+          { id: 1, text: `Option A (${choiceNum}) for ${input.theme}` },
+          { id: 2, text: `Option B (${choiceNum}) for ${input.theme}` },
+          { id: 3, text: `Option C (${choiceNum}) for ${input.theme}` }
         ],
         backgroundDescription: `A dynamic background representing the current state (${choiceNum}) in the ${input.theme} adventure.`
-    };
+      };
+    }
 }
 
 export const gameRouter = createTRPCRouter({
@@ -91,28 +146,36 @@ export const gameRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
       const existingSave = await db.query.gameSaves.findFirst({
         where: eq(gameSaves.userId, userId),
-        orderBy: (saves, { desc }) => [desc(saves.updatedAt)], // Get the latest updated one if multiple exist (shouldn't happen ideally)
+        orderBy: (saves, { desc }) => [desc(saves.updatedAt)], // Get the latest updated one if multiple exist
       });
 
       if (existingSave) {
-        // `jsonb` type in Drizzle should handle parsing automatically if defined correctly in schema.
-        // No explicit JSON.parse needed unless schema uses `text` for choices.
-        const choices = existingSave.currentChoices ?? []; // Default to empty array if null/undefined
+        // For SQLite, we need to parse the JSON string into an array of choice objects
+        let parsedChoices: Array<{ id: number; text: string }> = [];
+        try {
+          // Try to parse the string, but handle potential issues
+          if (existingSave.currentChoices) {
+            const choicesString = existingSave.currentChoices.toString();
+            if (choicesString.trim()) {
+              parsedChoices = JSON.parse(choicesString);
+            }
+          }
+        } catch (error) {
+          console.error("Error parsing choices JSON:", error);
+          // Default to empty array on parse error
+          parsedChoices = [];
+        }
 
-        // Ensure the structure matches the type expected by the frontend
-        // The schema uses `jsonb` which Drizzle maps to `unknown` by default,
-        // so we need to assert the type or validate it.
-        // Let's assume the structure matches the Zod schema used later.
         return {
-            status: "loaded",
-            saveData: {
-                ...existingSave,
-                currentChoices: choices as Array<{ id: number; text: string }>, // Assert type for safety
-            },
-        } as const; // Use 'as const' for better type inference on status
+          status: "loaded",
+          saveData: {
+            ...existingSave,
+            currentChoices: parsedChoices,
+          },
+        } as const;
       } else {
         // No save found, signal frontend to start new game flow
-        return { status: "new" } as const; // Use 'as const'
+        return { status: "new" } as const;
       }
     }),
 
@@ -133,21 +196,8 @@ export const gameRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      // --------------------------------------------------------------------
-      // IMPORTANT: The following `onConflictDoUpdate` requires a UNIQUE INDEX
-      // or UNIQUE CONSTRAINT on the `userId` column in the `game_saves` table
-      // in your PostgreSQL database. Ensure this index exists.
-      // Add it in `src/server/db/schema.ts` like this:
-      // export const gameSaves = createTable(
-      //   "game_save",
-      //   { ... columns ... },
-      //   (table) => ({
-      //     userIdx: index("gameSave_userId_idx").on(table.userId),
-      //     userUniqueIdx: uniqueIndex("gameSave_user_unique_idx").on(table.userId), // <-- Ensure this line exists
-      //   })
-      // );
-      // Then run your Drizzle migration command (e.g., `drizzle-kit push:pg`).
-      // --------------------------------------------------------------------
+      // For SQLite, we need to stringify JSON data since SQLite doesn't have JSONB
+      const choicesString = input.currentChoices ? JSON.stringify(input.currentChoices) : '[]';
 
       await db
         .insert(gameSaves)
@@ -159,7 +209,8 @@ export const gameRouter = createTRPCRouter({
           spriteUrl: input.spriteUrl ?? null,
           gameTheme: input.gameTheme ?? null,
           currentStory: input.currentStory ?? null,
-          currentChoices: input.currentChoices ?? [], // Default to empty array if null/undefined
+          // For SQLite, store JSON as a string
+          currentChoices: choicesString,
           currentBackgroundDescription: input.currentBackgroundDescription ?? null,
           currentBackgroundImageUrl: input.currentBackgroundImageUrl ?? null,
           // createdAt is set by default, updatedAt needs manual update here
@@ -174,7 +225,8 @@ export const gameRouter = createTRPCRouter({
             spriteUrl: input.spriteUrl ?? null,
             gameTheme: input.gameTheme ?? null,
             currentStory: input.currentStory ?? null,
-            currentChoices: input.currentChoices ?? [],
+            // For SQLite, store JSON as a string 
+            currentChoices: choicesString,
             currentBackgroundDescription: input.currentBackgroundDescription ?? null,
             currentBackgroundImageUrl: input.currentBackgroundImageUrl ?? null,
             updatedAt: new Date(), // Also update the timestamp on update
