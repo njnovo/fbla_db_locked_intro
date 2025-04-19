@@ -16,5 +16,5 @@ export const authOptions: NextAuthConfig = {
 }; 
 // https://next-auth.js.org/providers/github
 
-// Re-export auth function to maintain compatibility
-export { auth } from "~/server/auth/index";
+// Re-export auth from auth/auth.ts
+export * from "./auth/auth";
