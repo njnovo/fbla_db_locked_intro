@@ -198,40 +198,49 @@ export const gameRouter = createTRPCRouter({
 
       // For SQLite, we need to stringify JSON data since SQLite doesn't have JSONB
       const choicesString = input.currentChoices ? JSON.stringify(input.currentChoices) : '[]';
+      
+      // Get current timestamp as seconds since epoch
+      const currentTimestamp = Math.floor(Date.now() / 1000);
 
-      await db
-        .insert(gameSaves)
-        .values({
-          userId: userId,
-          gamePhase: input.gamePhase,
-          // Handle potential null values from input matching schema defaults or nullability
-          spriteDescription: input.spriteDescription ?? null,
-          spriteUrl: input.spriteUrl ?? null,
-          gameTheme: input.gameTheme ?? null,
-          currentStory: input.currentStory ?? null,
-          // For SQLite, store JSON as a string
-          currentChoices: choicesString,
-          currentBackgroundDescription: input.currentBackgroundDescription ?? null,
-          currentBackgroundImageUrl: input.currentBackgroundImageUrl ?? null,
-          // createdAt is set by default, updatedAt needs manual update here
-          updatedAt: new Date(),
-        })
-        .onConflictDoUpdate({
-          target: gameSaves.userId, // Target the unique user ID column
-          set: {
-            // Update all fields from the input when conflict occurs
+      // Check if a save already exists for this user
+      const existingSave = await db.query.gameSaves.findFirst({
+        where: eq(gameSaves.userId, userId),
+      });
+
+      if (existingSave) {
+        // Update existing save
+        await db
+          .update(gameSaves)
+          .set({
             gamePhase: input.gamePhase,
             spriteDescription: input.spriteDescription ?? null,
             spriteUrl: input.spriteUrl ?? null,
             gameTheme: input.gameTheme ?? null,
             currentStory: input.currentStory ?? null,
-            // For SQLite, store JSON as a string 
             currentChoices: choicesString,
             currentBackgroundDescription: input.currentBackgroundDescription ?? null,
             currentBackgroundImageUrl: input.currentBackgroundImageUrl ?? null,
-            updatedAt: new Date(), // Also update the timestamp on update
-          },
-        });
+            updatedAt: currentTimestamp,
+          })
+          .where(eq(gameSaves.userId, userId));
+      } else {
+        // Insert new save
+        await db
+          .insert(gameSaves)
+          .values({
+            userId: userId,
+            gamePhase: input.gamePhase,
+            spriteDescription: input.spriteDescription ?? null,
+            spriteUrl: input.spriteUrl ?? null,
+            gameTheme: input.gameTheme ?? null,
+            currentStory: input.currentStory ?? null,
+            currentChoices: choicesString,
+            currentBackgroundDescription: input.currentBackgroundDescription ?? null,
+            currentBackgroundImageUrl: input.currentBackgroundImageUrl ?? null,
+            createdAt: currentTimestamp,
+            updatedAt: currentTimestamp,
+          });
+      }
 
       return { success: true };
     }),
