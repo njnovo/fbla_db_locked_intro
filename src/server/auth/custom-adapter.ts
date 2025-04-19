@@ -156,6 +156,7 @@ export function MySqlDrizzleAdapter(
         type: data.type,
         provider: data.provider,
         providerAccountId: data.providerAccountId,
+        refresh_token: data.refresh_token ?? null,
       });
     },
     async getUserByAccount(account) {
