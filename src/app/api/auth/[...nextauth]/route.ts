@@ -4,7 +4,7 @@ import { env } from "~/env";
 import { db } from "~/server/db";
 import { MySqlDrizzleAdapter } from "~/server/auth/custom-adapter";
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+const handler = NextAuth({
   providers: [
     DiscordProvider({
       clientId: env.AUTH_DISCORD_ID,
@@ -23,4 +23,4 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
 });
 
-export const { GET, POST } = handlers;
+export { handler as GET, handler as POST };
