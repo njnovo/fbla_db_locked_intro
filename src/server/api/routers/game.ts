@@ -128,7 +128,16 @@ async function generateStoryWithAI(input: {
         result !== null &&
         'story' in result && typeof result.story === 'string' &&
         'choices' in result && Array.isArray(result.choices) &&
-        result.choices.every(c => typeof c === 'object' && c !== null && 'id' in c && typeof c.id === 'number' && 'text' in c && typeof c.text === 'string') &&
+        /* eslint-disable @typescript-eslint/no-unsafe-member-access */
+        result.choices.every((c): c is {id: number; text: string} => 
+          typeof c === 'object' && 
+          c !== null && 
+          'id' in c && 
+          typeof c.id === 'number' && 
+          'text' in c && 
+          typeof c.text === 'string'
+        ) &&
+        /* eslint-enable @typescript-eslint/no-unsafe-member-access */
         'backgroundDescription' in result && typeof result.backgroundDescription === 'string'
       ) {
          return result as AIStoryResponse; // Type assertion is safe now
@@ -175,7 +184,26 @@ export const gameRouter = createTRPCRouter({
           if (existingSave.currentChoices) {
             const choicesString = existingSave.currentChoices.toString();
             if (choicesString.trim()) {
-              parsedChoices = JSON.parse(choicesString);
+              try {
+                const parsed = JSON.parse(choicesString) as unknown;
+                // Validate the structure matches our expected format
+                if (Array.isArray(parsed) && 
+                    /* eslint-disable @typescript-eslint/no-unsafe-member-access */
+                    parsed.every((item): item is {id: number; text: string} => 
+                      typeof item === 'object' && 
+                      item !== null && 
+                      'id' in item && 
+                      typeof item.id === 'number' && 
+                      'text' in item && 
+                      typeof item.text === 'string'
+                    )
+                    /* eslint-enable @typescript-eslint/no-unsafe-member-access */
+                ) {
+                  parsedChoices = parsed;
+                }
+              } catch (parseError) {
+                console.error("Error parsing JSON structure:", parseError);
+              }
             }
           }
         } catch (error) {
@@ -323,7 +351,7 @@ export const gameRouter = createTRPCRouter({
         previousStory: input.currentStory,
         choice: choiceMade,
         theme: input.gameTheme,
-        spriteDesc: input.spriteDescription, // Pass to AI
+        spriteDesc: input.spriteDescription,
       });
       const backgroundImageUrl = await generateImageWithAI(
         nextState.backgroundDescription

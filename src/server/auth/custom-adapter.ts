@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import type { Adapter, AdapterUser, AdapterSession, VerificationToken } from "next-auth/adapters";
+import type { Adapter } from "next-auth/adapters";
 import type * as schema from "~/server/db/schema";
 import {
   accounts,

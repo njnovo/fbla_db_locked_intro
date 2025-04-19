@@ -106,7 +106,7 @@ export default function GamePage() {
       if (sessionStatus !== "authenticated" || gamePhase === 'loading') return;
 
       const saveData = {
-          gamePhase: gamePhase as "sprite" | "theme" | "playing", // Still need cast here after check
+          gamePhase: gamePhase,
           spriteDescription: spriteDescription ?? null,
           spriteUrl: spriteUrl ?? null,
           gameTheme: gameTheme ?? null,
