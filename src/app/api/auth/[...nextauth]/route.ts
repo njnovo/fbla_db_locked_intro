@@ -13,7 +13,7 @@ const handler = NextAuth({
       clientSecret: env.AUTH_DISCORD_SECRET,
     }),
   ],
-  adapter: MySqlDrizzleAdapter(db),
+  // adapter: MySqlDrizzleAdapter(db),
   callbacks: {
     session: ({ session, user }) => ({
       ...session,
