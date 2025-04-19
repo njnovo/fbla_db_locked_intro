@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Layout } from "~/components/Layout";
 import { PageTitle } from "~/components/PageTitle";
-import { Button } from "~/components/Button"; // Optional: if you want styled links
+// import { Button } from "~/components/Button"; // Removed unused import
 
 export default function ElementsPage() {
   return (
@@ -55,7 +55,7 @@ export default function ElementsPage() {
               Game Flow & Logic
             </h2>
             <p className="mb-4">
-              "Threads of Destiny" is designed as a dynamic, AI-powered choose-your-own-adventure game:
+              &quot;Threads of Destiny&quot; is designed as a dynamic, AI-powered choose-your-own-adventure game:
             </p>
             <ol className="list-decimal list-inside space-y-3 pl-4">
               <li>
@@ -68,7 +68,7 @@ export default function ElementsPage() {
                 <strong>Sprite Creation:</strong> The user provides a text description for their character. A tRPC mutation (`generateSprite`) sends this description to an AI image generation API (like DALL-E). The resulting image URL is returned and displayed. The game state (phase, sprite URL) is saved via the `saveGame` mutation.
               </li>
               <li>
-                <strong>Theme Selection:</strong> The user inputs a theme for their adventure (e.g., "Fantasy", "Sci-Fi"). Another tRPC mutation (`startGame`) uses this theme (and the sprite description for context) to prompt an AI text generation API (like ChatGPT) for the initial story segment, choices, and a background description. A separate AI call generates the initial background image based on its description. This initial state is returned, displayed, and saved using `saveGame`.
+                <strong>Theme Selection:</strong> The user inputs a theme for their adventure (e.g., &quot;Fantasy&quot;, &quot;Sci-Fi&quot;). Another tRPC mutation (`startGame`) uses this theme (and the sprite description for context) to prompt an AI text generation API (like ChatGPT) for the initial story segment, choices, and a background description. A separate AI call generates the initial background image based on its description. This initial state is returned, displayed, and saved using `saveGame`.
               </li>
               <li>
                 <strong>Gameplay Loop:</strong>
@@ -82,7 +82,7 @@ export default function ElementsPage() {
                  </ul>
               </li>
               <li>
-                <strong>Persistence:</strong> Every significant game state change (sprite generation, theme selection, choice made) triggers the `saveGame` tRPC mutation, which uses Drizzle ORM to upsert (update or insert) the user's current game state into the `game_saves` table in the PostgreSQL database. This ensures progress is saved automatically and can be resumed later.
+                <strong>Persistence:</strong> Every significant game state change (sprite generation, theme selection, choice made) triggers the `saveGame` tRPC mutation, which uses Drizzle ORM to upsert (update or insert) the user&apos;s current game state into the `game_saves` table in the PostgreSQL database. This ensures progress is saved automatically and can be resumed later.
               </li>
             </ol>
              <p className="mt-4 italic text-gray-400">
@@ -97,8 +97,8 @@ export default function ElementsPage() {
             </h2>
              <ul className="list-disc list-inside space-y-2 pl-4">
                 <li><strong>End-to-End Type Safety:</strong> tRPC + Drizzle ORM + TypeScript ensure type safety from the database schema definition through the backend API layer and into the React frontend components, reducing runtime errors.</li>
-                <li><strong>Server Components & Client Components:</strong> Leverages Next.js App Router features. Pages like this one can be Server Components, while interactive pages like the game itself (`/game`) are Client Components (`"use client"`) to utilize React Hooks and handle browser events.</li>
-                <li><strong>Protected Procedures:</strong> tRPC's `protectedProcedure` is used for actions requiring authentication (loading/saving game, generating content tied to a user), ensuring only logged-in users can perform them.</li>
+                <li><strong>Server Components & Client Components:</strong> Leverages Next.js App Router features. Pages like this one can be Server Components, while interactive pages like the game itself (`/game`) are Client Components (`&quot;use client&quot;`) to utilize React Hooks and handle browser events.</li>
+                <li><strong>Protected Procedures:</strong> tRPC&apos;s `protectedProcedure` is used for actions requiring authentication (loading/saving game, generating content tied to a user), ensuring only logged-in users can perform them.</li>
                 <li><strong>Database Migrations:</strong> `drizzle-kit` is used to manage database schema changes and generate SQL migration files, ensuring safe evolution of the database structure.</li>
                 <li><strong>Environment Variables:</strong> Sensitive keys (API keys, database URL, auth secrets) are managed through environment variables (`.env`) and validated using `T3 Env` (`src/env.js`).</li>
              </ul>

@@ -1,20 +1,26 @@
 import { z } from "zod";
 import {
   createTRPCRouter,
-  publicProcedure,
   protectedProcedure,
 } from "~/server/api/trpc";
 import { db } from "~/server/db"; // Import db instance
 import { gameSaves } from "~/server/db/schema"; // Import gameSaves schema
 import { eq } from "drizzle-orm";
-import { TRPCError } from "@trpc/server"; // For error handling
 import OpenAI from "openai"; // Import OpenAI client
 import { env } from "~/env"; // For API keys
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions"; // Import message type
 
 // Initialize OpenAI client
 const openai = new OpenAI({
   apiKey: env.OPENAI_API_KEY,
 });
+
+// Define a stricter type for AI story response
+interface AIStoryResponse {
+  story: string;
+  choices: Array<{ id: number; text: string }>;
+  backgroundDescription: string;
+}
 
 // Placeholder function - replace with actual OpenAI API call
 async function generateImageWithAI(prompt: string): Promise<string> {
@@ -50,8 +56,8 @@ async function generateStoryWithAI(input: {
   previousStory?: string, 
   choice?: string, 
   spriteDesc?: string,
-  conversationHistory?: Array<{role: "system" | "user" | "assistant", content: string}>
-}): Promise<{ story: string; choices: { id: number; text: string }[], backgroundDescription: string }> {
+  conversationHistory?: ChatCompletionMessageParam[] // Use imported type
+}): Promise<AIStoryResponse> {
     console.log(`AI TEXT API CALL: Generating story part for input:`, input);
     if (!env.OPENAI_API_KEY) {
        console.warn("OPENAI_API_KEY not set. Returning placeholder.");
@@ -63,7 +69,7 @@ async function generateStoryWithAI(input: {
     }
     
     // Build conversation history if provided, otherwise create a basic history
-    const messages = input.conversationHistory || [];
+    const messages: ChatCompletionMessageParam[] = input.conversationHistory ?? []; // Use imported type and initialize with ??
     
     // If no history provided, add system message and initial context
     if (messages.length === 0) {
@@ -76,7 +82,7 @@ async function generateStoryWithAI(input: {
       if (input.theme || input.spriteDesc) {
         messages.push({
           role: "user",
-          content: `I want to play a ${input.theme || "fantasy"} adventure with a character described as: ${input.spriteDesc || "a brave adventurer"}.`
+          content: `I want to play a ${input.theme ?? "fantasy"} adventure with a character described as: ${input.spriteDesc ?? "a brave adventurer"}.`
         });
       }
     }
@@ -99,42 +105,54 @@ async function generateStoryWithAI(input: {
       // Call OpenAI API
       const response = await openai.chat.completions.create({
         model: "gpt-4", // Or your desired model
-        messages: messages as any, // Type assertion to avoid TypeScript issues
+        messages: messages, // No longer needs 'as any'
         response_format: { type: "json_object" }, // Request JSON response
       });
       
       // Parse the response
-      const result = JSON.parse(response.choices[0]?.message?.content ?? '{}');
+      const content = response.choices[0]?.message?.content;
+      if (!content) {
+        throw new Error("AI response content is missing or empty.");
+      }
+      const result = JSON.parse(content) as unknown;
       
       // Add AI's response to conversation history for next time
       messages.push({
         role: "assistant",
-        content: response.choices[0]?.message?.content || ""
+        content: content,
       });
       
-      // Validate that the response has the expected structure
-      if (!result.story || !result.choices || !result.backgroundDescription) {
-        throw new Error("Invalid response format from AI");
+      // Validate that the response has the expected structure using type guards
+      if (
+        typeof result === 'object' && 
+        result !== null &&
+        'story' in result && typeof result.story === 'string' &&
+        'choices' in result && Array.isArray(result.choices) &&
+        result.choices.every(c => typeof c === 'object' && c !== null && 'id' in c && typeof c.id === 'number' && 'text' in c && typeof c.text === 'string') &&
+        'backgroundDescription' in result && typeof result.backgroundDescription === 'string'
+      ) {
+         return result as AIStoryResponse; // Type assertion is safe now
+      } else {
+         throw new Error("Invalid response format from AI after parsing.");
       }
-      
-      return result;
+
     } catch (error) {
-      console.error("Error calling OpenAI:", error);
+      console.error("Error calling OpenAI or parsing response:", error);
       
       // Fallback to mock data
       const baseStory = input.choice
-        ? `Following choice '${input.choice}', something else happens in the ${input.theme} setting.`
-        : `Starting the adventure in a ${input.theme} world with a character like ${input.spriteDesc}.`;
+        ? `Following choice '${input.choice}', something else happens in the ${input.theme ?? 'adventure'} setting.`
+        : `Starting the adventure in a ${input.theme ?? 'adventure'} world with a character like ${input.spriteDesc ?? 'a brave adventurer'}.`;
 
       const choiceNum = Math.floor(Math.random() * 3) + 1;
       return {
         story: `${baseStory} What is the next move? (Random choice: ${choiceNum})`,
         choices: [
-          { id: 1, text: `Option A (${choiceNum}) for ${input.theme}` },
-          { id: 2, text: `Option B (${choiceNum}) for ${input.theme}` },
-          { id: 3, text: `Option C (${choiceNum}) for ${input.theme}` }
+          { id: 1, text: `Option A (${choiceNum}) for ${input.theme ?? 'adventure'}` },
+          { id: 2, text: `Option B (${choiceNum}) for ${input.theme ?? 'adventure'}` },
+          { id: 3, text: `Option C (${choiceNum}) for ${input.theme ?? 'adventure'}` }
         ],
-        backgroundDescription: `A dynamic background representing the current state (${choiceNum}) in the ${input.theme} adventure.`
+        backgroundDescription: `A dynamic background representing the current state (${choiceNum}) in the ${input.theme ?? 'adventure'} adventure.`
       };
     }
 }

@@ -1,13 +1,13 @@
 import { and, eq } from "drizzle-orm";
 import type { Adapter, AdapterUser, AdapterSession, VerificationToken } from "next-auth/adapters";
-import * as schema from "~/server/db/schema";
+import type * as schema from "~/server/db/schema";
 import {
   accounts,
   sessions,
   users,
   verificationTokens,
 } from "~/server/db/schema";
-import { MySql2Database } from 'drizzle-orm/mysql2';
+import type { MySql2Database } from 'drizzle-orm/mysql2';
 
 // Helper to convert number timestamp to Date or null
 function timestampToDate(timestamp: number | null | undefined): Date | null {
@@ -157,6 +157,7 @@ export function MySqlDrizzleAdapter(
         provider: data.provider,
         providerAccountId: data.providerAccountId,
         refresh_token: data.refresh_token ?? null,
+        access_token: data.access_token ?? null,
       });
     },
     async getUserByAccount(account) {

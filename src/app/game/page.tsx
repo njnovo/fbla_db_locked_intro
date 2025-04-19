@@ -25,14 +25,11 @@ interface GameState {
   // Add other relevant game state fields here later
 }
 
-// Type for the successful loadGame query data
-type LoadGameSuccessData = Extract<Awaited<ReturnType<typeof api.game.loadGame.useQuery>>['data'], { status: 'loaded' | 'new' }>;
 // Type for the error from loadGame query
 type LoadGameError = TRPCClientErrorLike<AppRouter>;
 
 export default function GamePage() {
   const { data: session, status: sessionStatus } = useSession(); // Get session status
-  // const utils = api.useUtils(); // Keep if you need invalidation later
 
   const [gamePhase, setGamePhase] = useState<"sprite" | "theme" | "playing" | "loading">(
     "loading", // Start in loading state
@@ -87,7 +84,7 @@ export default function GamePage() {
             }
        }
     } else if (loadGameStatus === 'error' && loadGameError) {
-        const error = loadGameError as LoadGameError; // Keep assertion here
+        const error = loadGameError; // Removed unnecessary assertion
         console.error("Error loading game:", error);
     }
   }, [loadGameStatus, loadedGameData, loadGameError]);
@@ -110,13 +107,13 @@ export default function GamePage() {
 
       const saveData = {
           gamePhase: gamePhase as "sprite" | "theme" | "playing", // Still need cast here after check
-          spriteDescription: spriteDescription || null,
-          spriteUrl: spriteUrl || null,
-          gameTheme: gameTheme || null,
-          currentStory: gameState?.story || null,
-          currentChoices: gameState?.choices || [],
-          currentBackgroundDescription: gameState?.backgroundDescription || null,
-          currentBackgroundImageUrl: backgroundImageUrl || null,
+          spriteDescription: spriteDescription ?? null,
+          spriteUrl: spriteUrl ?? null,
+          gameTheme: gameTheme ?? null,
+          currentStory: gameState?.story ?? null,
+          currentChoices: gameState?.choices ?? [],
+          currentBackgroundDescription: gameState?.backgroundDescription ?? null,
+          currentBackgroundImageUrl: backgroundImageUrl ?? null,
       };
       console.log("Triggering save with data:", saveData);
       saveGameMutation.mutate(saveData);
@@ -292,6 +289,7 @@ export default function GamePage() {
           <div className="text-center w-full max-w-md">
             <h2 className="text-3xl font-bold mb-6">Choose Your Adventure Theme</h2>
             {spriteUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
               <img src={spriteUrl} alt="Generated Sprite" className="mx-auto mb-4 h-32 w-32 object-contain border-2 border-purple-400 rounded" />
             )}
             <form onSubmit={handleThemeSubmit} className="flex flex-col items-center gap-4">
@@ -319,31 +317,25 @@ export default function GamePage() {
         );
 
       case "playing":
-        if (!gameState) return <LoadingIndicator text="Loading game state..." />;
+        if (!gameState) {
+          return <LoadingIndicator text="Initializing game state..." />;
+        }
         return (
-          <div className="flex flex-col items-center gap-6 w-full max-w-4xl">
-            {/* Background container - style this appropriately */}
-            <div
-                className="w-full h-64 md:h-96 bg-cover bg-center rounded-lg border-2 border-purple-500/50 flex items-center justify-center text-gray-400 relative"
-                style={{ backgroundImage: `url(${backgroundImageUrl ?? ''})` }}
-            >
-                {!backgroundImageUrl && !isMutating && <LoadingIndicator text="Generating background..." />}
-                 {/* Sprite could be positioned absolutely within this container later */}
-                 {spriteUrl && (
-                    <img
-                        src={spriteUrl}
-                        alt="Character Sprite"
-                        className="h-16 w-16 md:h-24 md:w-24 object-contain absolute bottom-4 left-4 filter drop-shadow-lg" // Example positioning
-                    />
-                 )}
-            </div>
+          <div className="flex flex-col items-center gap-6 w-full">
+            {backgroundImageUrl && (
+              <div className="w-full max-w-xl aspect-video bg-black/30 rounded-lg overflow-hidden border border-purple-500/50 shadow-lg">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={backgroundImageUrl}
+                  alt={gameState.backgroundDescription ?? "Game background"}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            )}
+            <p className="text-lg whitespace-pre-wrap text-center max-w-prose">
+              {gameState.story}
+            </p>
 
-            {/* Story Text */}
-            <div className="bg-black/30 p-6 rounded-lg w-full">
-              <p className="text-lg leading-relaxed">{gameState.story}</p>
-            </div>
-
-            {/* Choices */}
             <div className="w-full">
               <h3 className="text-xl font-semibold mb-4 text-center">Choose your action:</h3>
               <ul className="flex flex-col gap-3 items-center">

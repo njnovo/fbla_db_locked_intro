@@ -23,6 +23,7 @@ export default function UserPage() {
         {status === "authenticated" && session?.user && (
           <div className="flex flex-col items-center gap-4 text-center">
             {session.user.image && (
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={session.user.image}
                 alt="User avatar"

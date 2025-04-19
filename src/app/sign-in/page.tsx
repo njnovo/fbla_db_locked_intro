@@ -10,7 +10,7 @@ import { LoadingIndicator } from "~/components/LoadingIndicator";
 import { PageTitle } from "~/components/PageTitle";
 
 export default function SignInPage() {
-  const { data: session, status } = useSession();
+  const { /* data: session, */ status } = useSession();
   const router = useRouter();
 
   useEffect(() => {
