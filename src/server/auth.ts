@@ -3,6 +3,7 @@ import DiscordProvider from "next-auth/providers/discord";
 import { env } from "~/env";
 // ... other imports
 
+// Auth configuration
 export const authOptions: NextAuthConfig = {
   // ... adapter, callbacks, etc.
   providers: [
@@ -14,3 +15,6 @@ export const authOptions: NextAuthConfig = {
   // ...
 }; 
 // https://next-auth.js.org/providers/github
+
+// Re-export auth function to maintain compatibility
+export { auth } from "~/server/auth/index";
