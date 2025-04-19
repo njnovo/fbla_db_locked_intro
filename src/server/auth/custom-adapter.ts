@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import type { Adapter } from "next-auth/adapters";
+import type { Adapter, AdapterUser, AdapterSession, VerificationToken } from "next-auth/adapters";
 import * as schema from "~/server/db/schema";
 import {
   accounts,
@@ -7,9 +7,15 @@ import {
   users,
   verificationTokens,
 } from "~/server/db/schema";
+import { MySql2Database } from 'drizzle-orm/mysql2';
+
+// Helper to convert number timestamp to Date or null
+function timestampToDate(timestamp: number | null | undefined): Date | null {
+  return typeof timestamp === 'number' ? new Date(timestamp * 1000) : null;
+}
 
 export function MySqlDrizzleAdapter(
-  client: any,
+  client: MySql2Database<typeof schema>,
 ): Adapter {
   return {
     async createUser(data) {
@@ -26,19 +32,32 @@ export function MySqlDrizzleAdapter(
         where: eq(users.id, id),
       });
 
-      return user!;
+      if (!user) throw new Error("User not found after creation");
+
+      return {
+        ...user,
+        emailVerified: timestampToDate(user.emailVerified),
+      };
     },
     async getUser(userId) {
       const user = await client.query.users.findFirst({
         where: eq(users.id, userId),
       });
-      return user ?? null;
+      if (!user) return null;
+      return {
+        ...user,
+        emailVerified: timestampToDate(user.emailVerified),
+      };
     },
     async getUserByEmail(email) {
       const user = await client.query.users.findFirst({
         where: eq(users.email, email),
       });
-      return user ?? null;
+       if (!user) return null;
+      return {
+        ...user,
+        emailVerified: timestampToDate(user.emailVerified),
+      };
     },
     async createSession(data) {
       await client.insert(sessions).values({
@@ -51,7 +70,12 @@ export function MySqlDrizzleAdapter(
         where: eq(sessions.sessionToken, data.sessionToken),
       });
 
-      return session!;
+      if (!session) throw new Error("Session not found after creation");
+
+      return {
+        ...session,
+        expires: timestampToDate(session.expires)!,
+      };
     },
     async getSessionAndUser(sessionToken) {
       const sessionAndUser = await client.query.sessions.findFirst({
@@ -65,8 +89,14 @@ export function MySqlDrizzleAdapter(
 
       const { user, ...session } = sessionAndUser;
       return {
-        session,
-        user,
+        session: {
+          ...session,
+          expires: timestampToDate(session.expires)!,
+        },
+        user: {
+          ...user,
+          emailVerified: timestampToDate(user.emailVerified),
+        },
       };
     },
     async updateUser(data) {
@@ -90,7 +120,12 @@ export function MySqlDrizzleAdapter(
         where: eq(users.id, data.id),
       });
 
-      return user!;
+      if (!user) throw new Error("User not found after update");
+      
+      return {
+        ...user,
+        emailVerified: timestampToDate(user.emailVerified),
+      };
     },
     async updateSession(data) {
       if (!data.expires) {
@@ -104,23 +139,23 @@ export function MySqlDrizzleAdapter(
         })
         .where(eq(sessions.sessionToken, data.sessionToken));
 
-      return await client.query.sessions.findFirst({
+      const updatedSession = await client.query.sessions.findFirst({
         where: eq(sessions.sessionToken, data.sessionToken),
       });
+      
+      if (!updatedSession) return null;
+
+      return {
+          ...updatedSession,
+          expires: timestampToDate(updatedSession.expires)!,
+      };
     },
     async linkAccount(data) {
       await client.insert(accounts).values({
-        access_token: data.access_token,
-        expires_at: data.expires_at,
-        id_token: data.id_token,
+        userId: data.userId,
+        type: data.type,
         provider: data.provider,
         providerAccountId: data.providerAccountId,
-        refresh_token: data.refresh_token,
-        scope: data.scope,
-        session_state: data.session_state,
-        token_type: data.token_type,
-        type: data.type,
-        userId: data.userId,
       });
     },
     async getUserByAccount(account) {
@@ -134,7 +169,13 @@ export function MySqlDrizzleAdapter(
         },
       });
 
-      return dbAccount?.user ?? null;
+      if (!dbAccount?.user) return null;
+
+      const user = dbAccount.user;
+      return {
+        ...user,
+        emailVerified: timestampToDate(user.emailVerified),
+      };
     },
     async deleteSession(sessionToken) {
       await client
@@ -155,7 +196,15 @@ export function MySqlDrizzleAdapter(
         ),
       });
 
-      return verificationToken!;
+      if (!verificationToken) throw new Error("Verification token not found after creation");
+      
+      // Although the Adapter type expects Awaitable<VerificationToken | null | undefined>,
+      // NextAuth seems to actually expect the token object itself on successful creation.
+      // Returning the object structure directly.
+      return {
+        ...verificationToken,
+        expires: timestampToDate(verificationToken.expires)!,
+      };
     },
     async useVerificationToken(data) {
       const verificationToken = await client.query.verificationTokens.findFirst({
@@ -176,7 +225,10 @@ export function MySqlDrizzleAdapter(
           )
         );
 
-      return verificationToken;
+      return {
+        ...verificationToken,
+        expires: timestampToDate(verificationToken.expires)!,
+      };
     },
     async deleteUser(userId) {
       await client.delete(users).where(eq(users.id, userId));
