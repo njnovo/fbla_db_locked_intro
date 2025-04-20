@@ -14,17 +14,17 @@ export const env = createEnv({
         : z.string().optional(),
     AUTH_DISCORD_ID: z.string(),
     AUTH_DISCORD_SECRET: z.string(),
-    DATABASE_URL: z.string().url(),
+    DATABASE_URL: z.string().url().optional(),
     NODE_ENV: z
       .enum(["development", "test", "production"])
       .default("development"),
     OPENAI_API_KEY: z.string().optional(),
     // SingleStore database configuration
-    DB_HOST: z.string().optional(),
-    DB_USER: z.string().optional(),
-    DB_PASSWORD: z.string().optional(),
-    DB_PORT: z.coerce.number().optional(),
-    DB_NAME: z.string().optional(),
+    DB_HOST: z.string(),
+    DB_USER: z.string(),
+    DB_PASSWORD: z.string(),
+    DB_PORT: z.coerce.number().default(3306),
+    DB_NAME: z.string(),
     DB_SSL: z.string().optional(),
   },
 
