@@ -119,6 +119,19 @@ export default function GamePage() {
       saveGameMutation.mutate(saveData);
   };
 
+  // Handle starting a new game
+  const handleNewGame = () => {
+    setGamePhase("sprite");
+    setSpriteDescription("");
+    setSpriteUrl(null);
+    setGameTheme("");
+    setGameState(null);
+    setBackgroundImageUrl(null);
+    
+    // Save the new state
+    triggerSave();
+  };
+
   // --- Other tRPC Mutations (Add error types) ---
   const generateSpriteMutation = api.game.generateSprite.useMutation({
     onSuccess: (data) => {
@@ -355,6 +368,16 @@ export default function GamePage() {
             </div>
              {/* Placeholder for WASD movement trigger */}
              <p className="text-sm text-gray-400 mt-4 italic">(Movement with WASD to get next prompt - not implemented yet)</p>
+             
+             {/* New Game button */}
+             <Button
+               variant="secondary"
+               onClick={handleNewGame}
+               disabled={isMutating}
+               className="mt-8"
+             >
+               Start New Game
+             </Button>
           </div>
         );
 
@@ -375,6 +398,19 @@ export default function GamePage() {
             </div>
          )}
          {renderContent()}
+         
+         {/* Show New Game button at bottom when in theme phase */}
+         {gamePhase === "theme" && (
+           <div className="mt-8 flex justify-center">
+             <Button
+               variant="secondary"
+               onClick={handleNewGame}
+               disabled={generateSpriteMutation.isPending || startGameMutation.isPending || makeChoiceMutation.isPending || saveGameMutation.isPending}
+             >
+               Start New Game
+             </Button>
+           </div>
+         )}
       </Container>
     </Layout>
   );
