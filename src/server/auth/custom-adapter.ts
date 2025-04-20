@@ -78,6 +78,8 @@ export function MySqlDrizzleAdapter(
       };
     },
     async getSessionAndUser(sessionToken) {
+      console.log(`[Adapter] getSessionAndUser called with token: ${sessionToken}`);
+      
       const sessionAndUser = await client.query.sessions.findFirst({
         where: eq(sessions.sessionToken, sessionToken),
         with: {
@@ -85,13 +87,25 @@ export function MySqlDrizzleAdapter(
         },
       });
 
-      if (!sessionAndUser) return null;
+      if (!sessionAndUser) {
+        console.log(`[Adapter] No session found for token: ${sessionToken}`);
+        return null;
+      }
+      
+      console.log(`[Adapter] Session found for token: ${sessionToken}`, sessionAndUser);
 
       const { user, ...session } = sessionAndUser;
+      
+      const expiresDate = timestampToDate(session.expires)!;
+      if (expiresDate < new Date()) {
+        console.log(`[Adapter] Session expired for token: ${sessionToken}`);
+        return null;
+      }
+      
       return {
         session: {
           ...session,
-          expires: timestampToDate(session.expires)!,
+          expires: expiresDate,
         },
         user: {
           ...user,
