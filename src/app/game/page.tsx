@@ -179,6 +179,21 @@ export default function GamePage() {
     },
    });
 
+  // Add a new mutation for WASD movement
+  const handleMovementMutation = api.game.handleMovement.useMutation({
+    onSuccess: (data) => {
+      console.log("Movement processed, next state:", data);
+      setGameState(data.nextState);
+      setBackgroundImageUrl(data.backgroundImageUrl);
+      // Trigger save after setting state
+      triggerSave();
+    },
+    onError: (error: LoadGameError) => {
+      console.error("Movement error:", error);
+      alert(`Error processing movement: ${error.message}`);
+    },
+  });
+
   // --- Event Handlers (call mutations, state updates happen in onSuccess) ---
   const handleSpriteSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -204,6 +219,31 @@ export default function GamePage() {
         spriteDescription: spriteDescription
     });
   };
+
+  // Add WASD movement handler
+  useEffect(() => {
+    if (gamePhase !== "playing" || !gameState || handleMovementMutation.isPending) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      
+      // Only process if it's a WASD key and we're in playing mode
+      if (["w", "a", "s", "d"].includes(key) && gamePhase === "playing" && !handleMovementMutation.isPending) {
+        e.preventDefault();
+        
+        handleMovementMutation.mutate({
+          direction: key as "w" | "a" | "s" | "d",
+          currentStory: gameState.story,
+          currentChoices: gameState.choices,
+          gameTheme: gameTheme,
+          spriteDescription: spriteDescription
+        });
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [gamePhase, gameState, gameTheme, spriteDescription, handleMovementMutation]);
 
   // --- Render Logic ---
 
@@ -281,7 +321,7 @@ export default function GamePage() {
                 value={spriteDescription}
                 onChange={(e) => setSpriteDescription(e.target.value)}
                 placeholder="e.g., A brave knight with shining armor"
-                className="p-2 rounded bg-white/20 text-white w-full disabled:opacity-70"
+                className="p-2 rounded bg-white/20 text-black w-full disabled:opacity-70"
                 required
                 disabled={isMutating}
               />
@@ -313,7 +353,7 @@ export default function GamePage() {
                 value={gameTheme}
                 onChange={(e) => setGameTheme(e.target.value)}
                 placeholder="e.g., Fantasy, Sci-Fi, Mystery"
-                className="p-2 rounded bg-white/20 text-white w-full disabled:opacity-70"
+                className="p-2 rounded bg-white/20 text-black w-full disabled:opacity-70"
                 required
                 disabled={isMutating}
               />
@@ -364,10 +404,10 @@ export default function GamePage() {
                   </li>
                 ))}
               </ul>
-              {(makeChoiceMutation.isPending || saveGameMutation.isPending) && <LoadingIndicator text="Loading next step..." className="text-center mt-4"/>}
+              {(makeChoiceMutation.isPending || saveGameMutation.isPending || handleMovementMutation.isPending) && <LoadingIndicator text="Loading next step..." className="text-center mt-4"/>}
             </div>
-             {/* Placeholder for WASD movement trigger */}
-             <p className="text-sm text-gray-400 mt-4 italic">(Movement with WASD to get next prompt - not implemented yet)</p>
+             {/* WASD movement instructions */}
+             <p className="text-sm text-blue-600 mt-4">Use W, A, S, D keys to move around in the game world</p>
              
              {/* New Game button */}
              <Button

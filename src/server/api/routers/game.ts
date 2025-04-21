@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   createTRPCRouter,
   protectedProcedure,
+  publicProcedure,
 } from "~/server/api/trpc";
 import { db } from "~/server/db"; // Import db instance
 import { gameSaves } from "~/server/db/schema"; // Import gameSaves schema
@@ -24,30 +25,32 @@ interface AIStoryResponse {
 
 // Placeholder function - replace with actual OpenAI API call
 async function generateImageWithAI(prompt: string): Promise<string> {
-  console.log(`AI IMAGE API CALL (MOCK): Generating image for prompt: "${prompt}"`);
+  console.log(`Generating image for prompt: "${prompt}"`);
   if (!env.OPENAI_API_KEY) {
      console.warn("OPENAI_API_KEY not set. Returning placeholder.");
-     // Return a placeholder or throw an error if the key is missing
-     // Using a more dynamic placeholder based on prompt might help debugging
      return `/placeholder-img-${prompt.substring(0, 15).replace(/[^a-z0-9]/gi, '-')}.png`;
   }
-  // --- Actual OpenAI Image Generation Call Would Go Here ---
-  // Example using a hypothetical openai client:
-  // const response = await openai.images.generate({
-  //   model: "dall-e-3", // Or your desired model
-  //   prompt: prompt,
-  //   n: 1,
-  //   size: "1024x1024", // Or your desired size
-  // });
-  // const imageUrl = response.data[0]?.url;
-  // if (!imageUrl) {
-  //   throw new Error("Failed to generate image");
-  // }
-  // return imageUrl;
-  // ----------------------------------------------------------
-  await new Promise(resolve => setTimeout(resolve, 800)); // Simulate delay
-  // Returning a consistent placeholder might be simpler if the dynamic one causes issues
-  return `/placeholder-ai-image.png`;
+  
+  try {
+    // Actual OpenAI Image Generation Call
+    const response = await openai.images.generate({
+      model: "dall-e-3", // Or any available model
+      prompt: prompt,
+      n: 1,
+      size: "1024x1024",
+    });
+    
+    const imageUrl = response.data[0]?.url;
+    if (!imageUrl) {
+      throw new Error("Failed to generate image");
+    }
+    
+    return imageUrl;
+  } catch (error) {
+    console.error("Error generating image with OpenAI:", error);
+    // Return a placeholder on error
+    return `/placeholder-ai-image.png`;
+  }
 }
 
 // Placeholder function - replace with actual OpenAI API call
@@ -168,12 +171,22 @@ async function generateStoryWithAI(input: {
 
 export const gameRouter = createTRPCRouter({
   // Procedure to load existing game or signal creation of a new one
-  loadGame: protectedProcedure // Requires user to be logged in
+  loadGame: publicProcedure // Changed from protectedProcedure to publicProcedure
     .query(async ({ ctx }) => {
+      // Check if user is authenticated
+      if (!ctx.session || !ctx.session.user) {
+        // Return new game state with warning
+        return { 
+          status: "new",
+          warning: "You are not logged in. Your game progress won't be saved to your account."
+        } as const;
+      }
+
       const userId = ctx.session.user.id;
-      const existingSave = await db.query.gameSaves.findFirst({
+      // Add proper type casting for db.query
+      const existingSave = await (db.query as any).gameSaves.findFirst({
         where: eq(gameSaves.userId, userId),
-        orderBy: (saves, { desc }) => [desc(saves.updatedAt)], // Get the latest updated one if multiple exist
+        orderBy: (saves: any, { desc }: { desc: any }) => [desc(saves.updatedAt)], // Get the latest updated one if multiple exist
       });
 
       if (existingSave) {
@@ -226,7 +239,7 @@ export const gameRouter = createTRPCRouter({
     }),
 
   // Save the entire game state (call this after each successful step)
-  saveGame: protectedProcedure
+  saveGame: publicProcedure // Changed from protectedProcedure to publicProcedure
     .input(
       z.object({
         gamePhase: z.enum(["sprite", "theme", "playing"]),
@@ -240,6 +253,14 @@ export const gameRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // Check if user is authenticated
+      if (!ctx.session || !ctx.session.user) {
+        return { 
+          success: true,
+          warning: "Game state not saved to database. Log in to save your progress."
+        };
+      }
+
       const userId = ctx.session.user.id;
 
       // For SQLite, we need to stringify JSON data since SQLite doesn't have JSONB
@@ -248,8 +269,8 @@ export const gameRouter = createTRPCRouter({
       // Get current timestamp as seconds since epoch
       const currentTimestamp = Math.floor(Date.now() / 1000);
 
-      // Check if a save already exists for this user
-      const existingSave = await db.query.gameSaves.findFirst({
+      // Check if a save already exists for this user - add type casting
+      const existingSave = await (db.query as any).gameSaves.findFirst({
         where: eq(gameSaves.userId, userId),
       });
 
@@ -291,24 +312,34 @@ export const gameRouter = createTRPCRouter({
       return { success: true };
     }),
 
-  // Generate Sprite - becomes protected, saves URL after generation
-  generateSprite: protectedProcedure
+  // Generate Sprite - becomes public, saves URL after generation
+  generateSprite: publicProcedure // Changed from protectedProcedure to publicProcedure
     .input(z.object({ description: z.string().min(1, "Description cannot be empty") })) // Added error message
-    .mutation(async ({ input }) => { // Removed ctx as it's not used here
+    .mutation(async ({ ctx, input }) => { 
+      // No database operations here, so we just add a warning if not logged in
+      const isLoggedIn = !!(ctx.session && ctx.session.user);
+      
       const imageUrl = await generateImageWithAI(
-        `Pixel art character sprite: ${input.description}`
+        `Retro character sprite (front view): ${input.description}`
       );
-      return { imageUrl };
+      
+      return { 
+        imageUrl,
+        warning: isLoggedIn ? undefined : "You are not logged in. Your game progress won't be saved."
+      };
     }),
 
-  // Start Game - becomes protected, generates initial state, frontend saves
-  startGame: protectedProcedure
+  // Start Game - becomes public, generates initial state, frontend saves
+  startGame: publicProcedure // Changed from protectedProcedure to publicProcedure
     .input(z.object({
         theme: z.string().min(1, "Theme cannot be empty"),
         // Ensure spriteDescription is required if needed by AI function
         spriteDescription: z.string().min(1, "Sprite description is required to start"),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // No database operations here, so we just add a warning if not logged in
+      const isLoggedIn = !!(ctx.session && ctx.session.user);
+      
       const initialState = await generateStoryWithAI({
         theme: input.theme,
         spriteDesc: input.spriteDescription,
@@ -325,11 +356,12 @@ export const gameRouter = createTRPCRouter({
           backgroundDescription: initialState.backgroundDescription,
         },
         backgroundImageUrl,
+        warning: isLoggedIn ? undefined : "You are not logged in. Your game progress won't be saved."
       };
     }),
 
-  // Make Choice - becomes protected, generates next state, frontend saves
-  makeChoice: protectedProcedure
+  // Make Choice - becomes public, generates next state, frontend saves
+  makeChoice: publicProcedure // Changed from protectedProcedure to publicProcedure
     .input(
       z.object({
         choiceId: z.number(),
@@ -342,7 +374,10 @@ export const gameRouter = createTRPCRouter({
         spriteDescription: z.string(), // Pass sprite desc if needed by AI
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      // No database operations here, so we just add a warning if not logged in
+      const isLoggedIn = !!(ctx.session && ctx.session.user);
+      
       const choiceMade =
         input.currentChoices.find((c) => c.id === input.choiceId)?.text ??
         "an unknown choice"; // Default text if choice isn't found
@@ -365,6 +400,55 @@ export const gameRouter = createTRPCRouter({
           backgroundDescription: nextState.backgroundDescription,
         },
         backgroundImageUrl,
+        warning: isLoggedIn ? undefined : "You are not logged in. Your game progress won't be saved."
+      };
+    }),
+
+  // WASD Movement - handle directional movement in the game
+  handleMovement: publicProcedure
+    .input(
+      z.object({
+        direction: z.enum(["w", "a", "s", "d"]),
+        currentStory: z.string(),
+        currentChoices: z.array(
+          z.object({ id: z.number(), text: z.string() })
+        ),
+        gameTheme: z.string(),
+        spriteDescription: z.string(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Map WASD keys to movement directions
+      const directionMap = {
+        w: "move forward",
+        a: "move left",
+        s: "move backward",
+        d: "move right"
+      };
+      
+      const movementAction = directionMap[input.direction];
+      const isLoggedIn = !!(ctx.session && ctx.session.user);
+      
+      // Generate story based on the movement direction
+      const nextState = await generateStoryWithAI({
+        previousStory: input.currentStory,
+        choice: `I ${movementAction}`,
+        theme: input.gameTheme,
+        spriteDesc: input.spriteDescription,
+      });
+      
+      const backgroundImageUrl = await generateImageWithAI(
+        nextState.backgroundDescription
+      );
+
+      return {
+        nextState: {
+          story: nextState.story,
+          choices: nextState.choices,
+          backgroundDescription: nextState.backgroundDescription,
+        },
+        backgroundImageUrl,
+        warning: isLoggedIn ? undefined : "You are not logged in. Your game progress won't be saved."
       };
     }),
 });

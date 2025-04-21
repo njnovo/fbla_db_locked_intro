@@ -1,9 +1,9 @@
-import { drizzle } from "drizzle-orm/mysql2";
+import { drizzle } from "drizzle-orm/singlestore";
 import mysql from "mysql2/promise";
 import { env } from "~/env";
 import * as schema from "./schema";
 
-// Create a connection pool using environment variables
+// Create a connection pool using environment variables for SingleStore
 const pool = mysql.createPool({
   host: env.DB_HOST,
   user: env.DB_USER,
@@ -16,5 +16,8 @@ const pool = mysql.createPool({
   queueLimit: 0,
 });
 
-// Export the database with proper typing, including schema and mode
-export const db = drizzle(pool, { schema, mode: 'default' });
+// Debug database connection
+console.log(`[DB] Connecting to ${env.DB_HOST}:${env.DB_PORT}/${env.DB_NAME} as ${env.DB_USER}`);
+
+// Export the database using SingleStore driver with simple configuration
+export const db = drizzle({ client: pool });

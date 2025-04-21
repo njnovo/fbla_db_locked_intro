@@ -1,14 +1,29 @@
 import { relations, sql } from "drizzle-orm";
-import {
-  index,
-  int,
-  mysqlTableCreator,
-  primaryKey,
-  text,
-  uniqueIndex,
-  varchar,
-} from "drizzle-orm/mysql-core";
+// Use only mysql-core imports for everything
+// import {
+//   index,
+//   int,
+//   primaryKey,
+//   text,
+//   uniqueIndex,
+//   varchar,
+//   foreignKey,
+//   mysqlTableCreator
+// } from "drizzle-orm/mysql-core";
+
 import { type AdapterAccount } from "next-auth/adapters";
+
+// Import necessary functions from singlestore-core
+import {
+  int,
+  text,
+  varchar,
+  // index, // Assuming not available/compatible
+  // primaryKey, // Assuming not available/compatible for compound keys
+  // uniqueIndex, // Assuming not available/compatible
+  // foreignKey, // Assuming not available/compatible
+  singlestoreTableCreator
+} from "drizzle-orm/singlestore-core";
 
 /**
  * This is an example of how to use the multi-project schema feature of Drizzle ORM. Use the same
@@ -16,36 +31,34 @@ import { type AdapterAccount } from "next-auth/adapters";
  *
  * @see https://orm.drizzle.team/docs/goodies#multi-project-schema
  */
-export const createTable = mysqlTableCreator((name) => `fbla_db_locked_intro_${name}`);
+export const createTable = singlestoreTableCreator((name) => `fbla_db_locked_intro_${name}`); 
+
+
+// Uncommented original tables
+export const randomTestTable = createTable("random_test_table", {
+  id: varchar("id", { length: 255 })
+    .notNull()
+    .primaryKey(),
+  name: varchar("name", { length: 255 }),
+});
 
 export const posts = createTable("post", {
   id: int("id").primaryKey().autoincrement(),
   name: varchar("name", { length: 256 }),
   createdById: varchar("created_by", { length: 255 })
-    .notNull()
-    .references(() => users.id),
+    .notNull(), 
   createdAt: int("created_at")
-    .default(sql`(UNIX_TIMESTAMP())`)
     .notNull(),
-  updatedAt: int("updatedAt")
-    .default(sql`(UNIX_TIMESTAMP())`)
-    .$onUpdate(() => sql`(UNIX_TIMESTAMP())`),
+  updatedAt: int("updatedAt"),
 });
-
-export const postsIndexes = {
-  createdByIdIdx: index("created_by_idx").on(posts.createdById),
-  nameIndex: index("name_idx").on(posts.name),
-};
 
 export const users = createTable("user", {
   id: varchar("id", { length: 255 })
     .notNull()
-    .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
+    .primaryKey(),
   name: varchar("name", { length: 255 }),
   email: varchar("email", { length: 255 }).notNull(),
-  emailVerified: int("email_verified")
-    .default(sql`(UNIX_TIMESTAMP())`),
+  emailVerified: int("email_verified"),
   image: varchar("image", { length: 255 }),
 });
 
@@ -57,10 +70,8 @@ export const usersRelations = relations(users, ({ many }) => ({
 
 export const accounts = createTable("account", {
   userId: varchar("user_id", { length: 255 })
-    .notNull()
-    .references(() => users.id),
+    .notNull(), 
   type: varchar("type", { length: 255 })
-    .$type<AdapterAccount["type"]>()
     .notNull(),
   provider: varchar("provider", { length: 255 }).notNull(),
   providerAccountId: varchar("provider_account_id", { length: 255 }).notNull(),
@@ -73,13 +84,6 @@ export const accounts = createTable("account", {
   session_state: varchar("session_state", { length: 255 }),
 });
 
-export const accountsIndexes = {
-  compoundKey: primaryKey({
-    columns: [accounts.provider, accounts.providerAccountId],
-  }),
-  userIdIdx: index("account_user_id_idx").on(accounts.userId),
-};
-
 export const accountsRelations = relations(accounts, ({ one }) => ({
   user: one(users, { fields: [accounts.userId], references: [users.id] }),
 }));
@@ -87,14 +91,9 @@ export const accountsRelations = relations(accounts, ({ one }) => ({
 export const sessions = createTable("session", {
   sessionToken: varchar("session_token", { length: 255 }).notNull().primaryKey(),
   userId: varchar("userId", { length: 255 })
-    .notNull()
-    .references(() => users.id),
+    .notNull(), 
   expires: int("expires").notNull(),
 });
-
-export const sessionsIndexes = {
-  userIdIdx: index("session_userId_idx").on(sessions.userId),
-};
 
 export const sessionsRelations = relations(sessions, ({ one }) => ({
   user: one(users, { fields: [sessions.userId], references: [users.id] }),
@@ -106,22 +105,15 @@ export const verificationTokens = createTable("verification_token", {
   expires: int("expires").notNull(),
 });
 
-export const verificationTokensIndexes = {
-  compoundKey: primaryKey({ columns: [verificationTokens.identifier, verificationTokens.token] }),
-};
-
 export const gameSaves = createTable("game_save", {
   id: int("id").primaryKey().autoincrement(),
   userId: varchar("user_id", { length: 255 })
-    .notNull()
-    .references(() => users.id),
+    .notNull(), 
   createdAt: int("created_at")
-    .default(sql`(UNIX_TIMESTAMP())`)
     .notNull(),
   updatedAt: int("updated_at")
-    .default(sql`(UNIX_TIMESTAMP())`)
     .notNull(),
-  gamePhase: varchar("game_phase", { length: 50 }).notNull().default("sprite"),
+  gamePhase: varchar("game_phase", { length: 50 }).notNull(),
   spriteDescription: text("sprite_description"),
   spriteUrl: text("sprite_url"),
   gameTheme: text("game_theme"),
@@ -131,11 +123,7 @@ export const gameSaves = createTable("game_save", {
   currentBackgroundImageUrl: text("current_background_image_url"),
 });
 
-export const gameSavesIndexes = {
-  userIdx: index("gameSave_userId_idx").on(gameSaves.userId),
-  userUniqueIdx: uniqueIndex("gameSave_user_unique_idx").on(gameSaves.userId),
-};
-
 export const gameSavesRelations = relations(gameSaves, ({ one }) => ({
   user: one(users, { fields: [gameSaves.userId], references: [users.id] }),
 }));
+
