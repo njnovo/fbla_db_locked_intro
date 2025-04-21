@@ -6,7 +6,7 @@ import {
 } from "~/server/api/trpc";
 import { db } from "~/server/db"; // Import db instance
 import { gameSaves } from "~/server/db/schema"; // Import gameSaves schema
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import OpenAI from "openai"; // Import OpenAI client
 import { env } from "~/env"; // For API keys
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions"; // Import message type
@@ -170,8 +170,184 @@ async function generateStoryWithAI(input: {
 }
 
 export const gameRouter = createTRPCRouter({
-  // Procedure to load existing game or signal creation of a new one
-  loadGame: publicProcedure // Changed from protectedProcedure to publicProcedure
+  // Get all save slots for a user
+  getSaveSlots: publicProcedure
+    .query(async ({ ctx }) => {
+      // Check if user is authenticated
+      if (!ctx.session || !ctx.session.user) {
+        console.log("getSaveSlots: User not authenticated");
+        return { 
+          status: "unauthenticated",
+          warning: "You are not logged in. Your game progress won't be saved to your account."
+        } as const;
+      }
+
+      const userId = ctx.session.user.id;
+      console.log("getSaveSlots: Fetching slots for user ID:", userId);
+      
+      // Get all save slots for the user
+      const saveSlots = await db
+        .select()
+        .from(gameSaves)
+        .where(eq(gameSaves.userId, userId))
+        .orderBy(gameSaves.slotNumber);
+
+      console.log("getSaveSlots: Raw database results:", saveSlots);
+
+      // Process each save slot's data
+      const processedSlots = [];
+      for (let i = 1; i <= 3; i++) {
+        const slot = saveSlots.find(slot => Number(slot.slotNumber) === i);
+        
+        if (slot) {
+          console.log(`getSaveSlots: Found slot ${i}:`, slot);
+          // Parse the choices from JSON string
+          let parsedChoices: Array<{ id: number; text: string }> = [];
+          try {
+            if (slot.currentChoices) {
+              const choicesString = slot.currentChoices.toString();
+              if (choicesString.trim()) {
+                try {
+                  const parsed = JSON.parse(choicesString) as unknown;
+                  // Validate the structure
+                  if (Array.isArray(parsed) && 
+                      parsed.every((item): item is {id: number; text: string} => 
+                        typeof item === 'object' && 
+                        item !== null && 
+                        'id' in item && 
+                        typeof item.id === 'number' && 
+                        'text' in item && 
+                        typeof item.text === 'string'
+                      )
+                  ) {
+                    parsedChoices = parsed;
+                  }
+                } catch (parseError) {
+                  console.error(`Error parsing JSON structure for slot ${i}:`, parseError);
+                }
+              }
+            }
+          } catch (error) {
+            console.error(`Error processing choices for slot ${i}:`, error);
+            parsedChoices = [];
+          }
+
+          // Check if this is actually a complete save
+          const slotIsEmpty = !slot.gamePhase || !slot.spriteUrl;
+          console.log(`getSaveSlots: Slot ${i} isEmpty check:`, { 
+            slotIsEmpty,
+            hasGamePhase: !!slot.gamePhase,
+            hasSpriteUrl: !!slot.spriteUrl
+          });
+
+          processedSlots.push({
+            slotNumber: i,
+            slotName: slot.slotName || `Save Slot ${i}`,
+            isEmpty: slotIsEmpty, // Only mark as non-empty if it has required fields
+            gamePhase: slot.gamePhase,
+            spriteDescription: slot.spriteDescription,
+            spriteUrl: slot.spriteUrl,
+            gameTheme: slot.gameTheme,
+            currentStory: slot.currentStory,
+            currentChoices: parsedChoices,
+            currentBackgroundImageUrl: slot.currentBackgroundImageUrl,
+            score: slot.score || 0,
+            updatedAt: slot.updatedAt,
+          });
+        } else {
+          console.log(`getSaveSlots: No data for slot ${i}, marking as empty`);
+          // Empty slot
+          processedSlots.push({
+            slotNumber: i,
+            slotName: `Save Slot ${i}`,
+            isEmpty: true,
+          });
+        }
+      }
+
+      console.log("getSaveSlots: Returning processed slots:", processedSlots);
+      return { 
+        status: "success",
+        saveSlots: processedSlots
+      } as const;
+    }),
+
+  // Load a specific save slot
+  loadGameSlot: publicProcedure
+    .input(z.object({
+      slotNumber: z.number().int().min(1).max(3)
+    }))
+    .query(async ({ ctx, input }) => {
+      // Check if user is authenticated
+      if (!ctx.session || !ctx.session.user) {
+        return { 
+          status: "unauthenticated",
+          warning: "You are not logged in. Your game progress won't be saved to your account."
+        } as const;
+      }
+
+      const userId = ctx.session.user.id;
+      
+      // Find the save for the specified slot
+      const existingSave = await db
+        .select()
+        .from(gameSaves)
+        .where(
+          and(
+            eq(gameSaves.userId, userId),
+            eq(gameSaves.slotNumber, input.slotNumber)
+          )
+        )
+        .limit(1);
+
+      if (existingSave.length > 0) {
+        const save = existingSave[0];
+        // Parse choices
+        let parsedChoices: Array<{ id: number; text: string }> = [];
+        try {
+          if (save && save.currentChoices) {
+            const choicesString = save.currentChoices.toString();
+            if (choicesString.trim()) {
+              try {
+                const parsed = JSON.parse(choicesString) as unknown;
+                // Validate the structure
+                if (Array.isArray(parsed) && 
+                    parsed.every((item): item is {id: number; text: string} => 
+                      typeof item === 'object' && 
+                      item !== null && 
+                      'id' in item && 
+                      typeof item.id === 'number' && 
+                      'text' in item && 
+                      typeof item.text === 'string'
+                    )
+                ) {
+                  parsedChoices = parsed;
+                }
+              } catch (parseError) {
+                console.error(`Error parsing JSON structure:`, parseError);
+              }
+            }
+          }
+        } catch (error) {
+          console.error(`Error processing choices:`, error);
+          parsedChoices = [];
+        }
+
+        return {
+          status: "loaded",
+          saveData: {
+            ...save,
+            currentChoices: parsedChoices,
+          },
+        } as const;
+      } else {
+        // No save found for this slot
+        return { status: "empty", slotNumber: input.slotNumber } as const;
+      }
+    }),
+
+  // Procedure to load existing game or signal creation of a new one (legacy, will be removed later)
+  loadGame: publicProcedure
     .query(async ({ ctx }) => {
       // Check if user is authenticated
       if (!ctx.session || !ctx.session.user) {
@@ -183,25 +359,26 @@ export const gameRouter = createTRPCRouter({
       }
 
       const userId = ctx.session.user.id;
-      // Add proper type casting for db.query
-      const existingSave = await (db.query as any).gameSaves.findFirst({
-        where: eq(gameSaves.userId, userId),
-        orderBy: (saves: any, { desc }: { desc: any }) => [desc(saves.updatedAt)], // Get the latest updated one if multiple exist
-      });
+      // Get all save slots
+      const saveSlots = await db
+        .select()
+        .from(gameSaves)
+        .where(eq(gameSaves.userId, userId))
+        .orderBy(gameSaves.updatedAt);
 
-      if (existingSave) {
+      if (saveSlots.length > 0) {
+        const mostRecentSave = saveSlots[0];
         // For SQLite, we need to parse the JSON string into an array of choice objects
         let parsedChoices: Array<{ id: number; text: string }> = [];
         try {
           // Try to parse the string, but handle potential issues
-          if (existingSave.currentChoices) {
-            const choicesString = existingSave.currentChoices.toString();
+          if (mostRecentSave && mostRecentSave.currentChoices) {
+            const choicesString = mostRecentSave.currentChoices.toString();
             if (choicesString.trim()) {
               try {
                 const parsed = JSON.parse(choicesString) as unknown;
                 // Validate the structure matches our expected format
                 if (Array.isArray(parsed) && 
-                    /* eslint-disable @typescript-eslint/no-unsafe-member-access */
                     parsed.every((item): item is {id: number; text: string} => 
                       typeof item === 'object' && 
                       item !== null && 
@@ -210,7 +387,6 @@ export const gameRouter = createTRPCRouter({
                       'text' in item && 
                       typeof item.text === 'string'
                     )
-                    /* eslint-enable @typescript-eslint/no-unsafe-member-access */
                 ) {
                   parsedChoices = parsed;
                 }
@@ -228,7 +404,7 @@ export const gameRouter = createTRPCRouter({
         return {
           status: "loaded",
           saveData: {
-            ...existingSave,
+            ...mostRecentSave,
             currentChoices: parsedChoices,
           },
         } as const;
@@ -238,18 +414,158 @@ export const gameRouter = createTRPCRouter({
       }
     }),
 
-  // Save the entire game state (call this after each successful step)
-  saveGame: publicProcedure // Changed from protectedProcedure to publicProcedure
+  // Save the game state to a specific slot
+  saveGameSlot: publicProcedure
     .input(
       z.object({
+        slotNumber: z.number().int().min(1).max(3),
+        slotName: z.string().optional(),
         gamePhase: z.enum(["sprite", "theme", "playing"]),
-        spriteDescription: z.string().nullish(), // Use nullish for optional().nullable()
+        spriteDescription: z.string().nullish(),
         spriteUrl: z.string().nullish(),
         gameTheme: z.string().nullish(),
         currentStory: z.string().nullish(),
         currentChoices: z.array(z.object({ id: z.number(), text: z.string() })).nullish(),
         currentBackgroundDescription: z.string().nullish(),
         currentBackgroundImageUrl: z.string().nullish(),
+        score: z.number().int().nullish(),
+        spritePosition: z.any().nullish(), // Keep for compatibility
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      console.log("saveGameSlot: Starting save operation with input:", { 
+        slotNumber: input.slotNumber,
+        gamePhase: input.gamePhase,
+        hasChoices: !!input.currentChoices?.length
+      });
+      
+      // Check raw session data to debug authentication
+      console.log("saveGameSlot: Session debug:", {
+        hasSession: !!ctx.session,
+        hasUser: !!(ctx.session?.user),
+        userId: ctx.session?.user?.id,
+        name: ctx.session?.user?.name,
+        email: ctx.session?.user?.email
+      });
+      
+      // Check if user is authenticated
+      if (!ctx.session || !ctx.session.user) {
+        console.log("saveGameSlot: User not authenticated, returning warning");
+        return { 
+          success: false,
+          warning: "Game state not saved to database. Log in to save your progress."
+        };
+      }
+
+      const userId = ctx.session.user.id;
+      console.log("saveGameSlot: Saving for user ID:", userId);
+
+      // For SQLite, we need to stringify JSON data since SQLite doesn't have JSONB
+      const choicesString = input.currentChoices ? JSON.stringify(input.currentChoices) : '[]';
+      
+      // Get current timestamp as seconds since epoch
+      const currentTimestamp = Math.floor(Date.now() / 1000);
+
+      // Check if a save already exists for this user and slot
+      const existingSave = await db
+        .select()
+        .from(gameSaves)
+        .where(
+          and(
+            eq(gameSaves.userId, userId),
+            eq(gameSaves.slotNumber, input.slotNumber)
+          )
+        )
+        .limit(1);
+      
+      console.log("saveGameSlot: Existing save found:", existingSave.length > 0);
+
+      // Calculate score increment - each save increments score by 1 for screens seen
+      const currentScore = existingSave.length > 0 && existingSave[0] ? (existingSave[0].score || 0) : 0;
+      const newScore = input.score !== undefined ? input.score : currentScore + 1;
+
+      try {
+        if (existingSave.length > 0) {
+          // Update existing save
+          console.log("saveGameSlot: Updating existing save, setting:", {
+            gamePhase: input.gamePhase,
+            score: newScore
+          });
+          
+          await db
+            .update(gameSaves)
+            .set({
+              gamePhase: input.gamePhase,
+              slotName: input.slotName,
+              spriteDescription: input.spriteDescription ?? null,
+              spriteUrl: input.spriteUrl ?? null,
+              gameTheme: input.gameTheme ?? null,
+              currentStory: input.currentStory ?? null,
+              currentChoices: choicesString,
+              currentBackgroundDescription: input.currentBackgroundDescription ?? null,
+              currentBackgroundImageUrl: input.currentBackgroundImageUrl ?? null,
+              score: newScore,
+              updatedAt: currentTimestamp,
+            })
+            .where(
+              and(
+                eq(gameSaves.userId, userId),
+                eq(gameSaves.slotNumber, input.slotNumber)
+              )
+            );
+        } else {
+          // Insert new save
+          console.log("saveGameSlot: Inserting new save with:", {
+            slotNumber: input.slotNumber,
+            gamePhase: input.gamePhase,
+            score: newScore
+          });
+          
+          await db
+            .insert(gameSaves)
+            .values({
+              userId: userId,
+              slotNumber: input.slotNumber,
+              gamePhase: input.gamePhase,
+              slotName: input.slotName || `Save Slot ${input.slotNumber}`,
+              spriteDescription: input.spriteDescription ?? null,
+              spriteUrl: input.spriteUrl ?? null,
+              gameTheme: input.gameTheme ?? null,
+              currentStory: input.currentStory ?? null,
+              currentChoices: choicesString,
+              currentBackgroundDescription: input.currentBackgroundDescription ?? null,
+              currentBackgroundImageUrl: input.currentBackgroundImageUrl ?? null,
+              score: newScore,
+              createdAt: currentTimestamp,
+              updatedAt: currentTimestamp,
+            });
+        }
+        
+        console.log("saveGameSlot: Save operation successful");
+        return { 
+          success: true,
+          slotNumber: input.slotNumber,
+          score: newScore
+        };
+      } catch (error) {
+        console.error("saveGameSlot: Database error during save:", error);
+        throw error;
+      }
+    }),
+
+  // Legacy save method - will be removed later
+  saveGame: publicProcedure
+    .input(
+      z.object({
+        gamePhase: z.enum(["sprite", "theme", "playing"]),
+        spriteDescription: z.string().nullish(),
+        spriteUrl: z.string().nullish(),
+        gameTheme: z.string().nullish(),
+        currentStory: z.string().nullish(),
+        currentChoices: z.array(z.object({ id: z.number(), text: z.string() })).nullish(),
+        currentBackgroundDescription: z.string().nullish(),
+        currentBackgroundImageUrl: z.string().nullish(),
+        spritePosition: z.any().nullish(), // Keep for compatibility
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -269,13 +585,20 @@ export const gameRouter = createTRPCRouter({
       // Get current timestamp as seconds since epoch
       const currentTimestamp = Math.floor(Date.now() / 1000);
 
-      // Check if a save already exists for this user - add type casting
-      const existingSave = await (db.query as any).gameSaves.findFirst({
-        where: eq(gameSaves.userId, userId),
-      });
+      // Check if any saves exist for this user
+      const existingSaves = await db
+        .select()
+        .from(gameSaves)
+        .where(eq(gameSaves.userId, userId))
+        .orderBy(gameSaves.updatedAt);
 
-      if (existingSave) {
-        // Update existing save
+      // Use slot 1 by default for legacy saves
+      const slotNumber = 1;
+      const currentScore = existingSaves.length > 0 && existingSaves[0] ? (existingSaves[0].score || 0) : 0;
+      const newScore = currentScore + 1;
+
+      if (existingSaves.length > 0 && existingSaves[0]) {
+        // Update most recent save
         await db
           .update(gameSaves)
           .set({
@@ -287,15 +610,18 @@ export const gameRouter = createTRPCRouter({
             currentChoices: choicesString,
             currentBackgroundDescription: input.currentBackgroundDescription ?? null,
             currentBackgroundImageUrl: input.currentBackgroundImageUrl ?? null,
+            score: newScore,
             updatedAt: currentTimestamp,
           })
-          .where(eq(gameSaves.userId, userId));
+          .where(eq(gameSaves.id, existingSaves[0].id));
       } else {
-        // Insert new save
+        // Insert new save in slot 1
         await db
           .insert(gameSaves)
           .values({
             userId: userId,
+            slotNumber: slotNumber,
+            slotName: "Save Slot 1",
             gamePhase: input.gamePhase,
             spriteDescription: input.spriteDescription ?? null,
             spriteUrl: input.spriteUrl ?? null,
@@ -304,6 +630,7 @@ export const gameRouter = createTRPCRouter({
             currentChoices: choicesString,
             currentBackgroundDescription: input.currentBackgroundDescription ?? null,
             currentBackgroundImageUrl: input.currentBackgroundImageUrl ?? null,
+            score: newScore,
             createdAt: currentTimestamp,
             updatedAt: currentTimestamp,
           });
@@ -418,36 +745,19 @@ export const gameRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // Map WASD keys to movement directions
-      const directionMap = {
-        w: "move forward",
-        a: "move left",
-        s: "move backward",
-        d: "move right"
-      };
+      // For our platformer mechanics, we don't generate new content for WASD movement
+      // The movements are handled client-side with physics
+      // This endpoint now just returns the current state unchanged
       
-      const movementAction = directionMap[input.direction];
       const isLoggedIn = !!(ctx.session && ctx.session.user);
       
-      // Generate story based on the movement direction
-      const nextState = await generateStoryWithAI({
-        previousStory: input.currentStory,
-        choice: `I ${movementAction}`,
-        theme: input.gameTheme,
-        spriteDesc: input.spriteDescription,
-      });
-      
-      const backgroundImageUrl = await generateImageWithAI(
-        nextState.backgroundDescription
-      );
-
       return {
         nextState: {
-          story: nextState.story,
-          choices: nextState.choices,
-          backgroundDescription: nextState.backgroundDescription,
+          story: input.currentStory,
+          choices: input.currentChoices,
+          backgroundDescription: "", // Empty since we're not changing the background
         },
-        backgroundImageUrl,
+        backgroundImageUrl: "", // Return empty to keep current background
         warning: isLoggedIn ? undefined : "You are not logged in. Your game progress won't be saved."
       };
     }),

@@ -109,6 +109,7 @@ export const gameSaves = createTable("game_save", {
   id: int("id").primaryKey().autoincrement(),
   userId: varchar("user_id", { length: 255 })
     .notNull(), 
+  slotNumber: int("slot_number"), // Remove .notNull() temporarily
   createdAt: int("created_at")
     .notNull(),
   updatedAt: int("updated_at")
@@ -121,6 +122,8 @@ export const gameSaves = createTable("game_save", {
   currentChoices: text("current_choices"),
   currentBackgroundDescription: text("current_background_description"),
   currentBackgroundImageUrl: text("current_background_image_url"),
+  score: int("score").default(0), // Number of screens player has seen
+  slotName: varchar("slot_name", { length: 100 }), // Optional name for the save slot
 });
 
 export const gameSavesRelations = relations(gameSaves, ({ one }) => ({
