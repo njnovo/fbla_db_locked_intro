@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { desc, eq } from "drizzle-orm";
 
 import {
   createTRPCRouter,
@@ -22,13 +23,15 @@ export const postRouter = createTRPCRouter({
       await ctx.db.insert(posts).values({
         name: input.name,
         createdById: ctx.session.user.id,
+        createdAt: Math.floor(Date.now() / 1000),
       });
     }),
 
   getLatest: protectedProcedure.query(async ({ ctx }) => {
-    const post = await ctx.db.query.posts.findFirst({
-      orderBy: (posts, { desc }) => [desc(posts.createdAt)],
-    });
+    const [post] = await ctx.db.select()
+      .from(posts)
+      .orderBy(desc(posts.createdAt))
+      .limit(1);
 
     return post ?? null;
   }),
