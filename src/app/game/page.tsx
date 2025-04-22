@@ -778,12 +778,12 @@ export default function GamePage() {
     switch (gamePhase) {
       case "slots":
         return (
-          <div className="w-full max-w-xl">
+          <div className="w-full max-w-xl flex flex-col items-center mx-auto">
             <h2 className="text-3xl font-bold mb-6 text-center">Game Slots</h2>
             <p className="text-center mb-4">Select a slot to start or continue your adventure</p>
             
             {/* Debug info and refresh button */}
-            <div className="mb-4 p-2 border border-gray-700 rounded bg-gray-900 text-xs text-white">
+            {/* <div className="mb-4 p-2 border border-gray-700 rounded bg-gray-900 text-xs text-white">
               <p>Authentication status: {sessionStatus}</p>
               <p>Has slot data: {saveSlotData ? 'yes' : 'no'}</p>
               <p>Number of slots: {saveSlots.length}</p>
@@ -799,18 +799,18 @@ export default function GamePage() {
               >
                 Refresh Slots
               </button>
-            </div>
+            </div> */}
             
             <div className="grid gap-4">
               {saveSlots.map((slot) => (
                 <div 
                   key={slot.slotNumber} 
-                  className="bg-gray-800 rounded-lg p-4 border border-gray-700 shadow-md relative"
+                  className="bg-white rounded-lg p-4 border border-gray-300 shadow-md relative text-gray-800"
                 >
                   {/* Debug data */}
-                  <div className="absolute top-1 right-1 text-xs text-green-300 bg-black/40 p-1 rounded">
+                  {/* <div className="absolute top-1 right-1 text-xs text-green-300 bg-black/40 p-1 rounded">
                     isEmpty: {String(slot.isEmpty)} • slotNumber: {slot.slotNumber}
-                  </div>
+                  </div> */}
                   
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-xl font-semibold">{slot.slotName}</h3>
@@ -829,7 +829,7 @@ export default function GamePage() {
                           <img 
                             src={slot.spriteUrl} 
                             alt="Character sprite" 
-                            className="w-12 h-12 object-contain border border-gray-600 rounded bg-black/30"
+                            className="w-12 h-12 object-contain border border-gray-600 rounded"
                           />
                         )}
                         <div className="flex-1 text-sm">
@@ -884,7 +884,7 @@ export default function GamePage() {
 
       case "sprite":
         return (
-          <div className="text-center w-full max-w-md">
+          <div className="text-center w-full max-w-md mx-auto">
             <h2 className="text-3xl font-bold mb-6">Create Your Character</h2>
             <form onSubmit={handleSpriteSubmit} className="flex flex-col items-center gap-4">
               <label htmlFor="spriteDesc" className="text-lg">Describe your character:</label>
@@ -921,7 +921,7 @@ export default function GamePage() {
 
       case "theme":
         return (
-          <div className="text-center w-full max-w-md">
+          <div className="text-center w-full max-w-md mx-auto">
             <h2 className="text-3xl font-bold mb-6">Choose Your Adventure Theme</h2>
             {spriteUrl && (
               // eslint-disable-next-line @next/next/no-img-element
@@ -981,10 +981,9 @@ export default function GamePage() {
                   />
                 </div>
               )}
-              
               {/* Game score display */}
               <div className="absolute top-2 left-2 bg-black/70 text-white text-xs px-2 py-1 rounded-md">
-                Score: {gameScore}
+                Score: {gameScore-1}
               </div>
               
               {/* Ground/floor for sprite to stand on */}
@@ -1047,6 +1046,7 @@ export default function GamePage() {
             <div className="text-sm text-blue-600 mt-2 flex flex-col items-center">
               <p>Use W (jump), A (left), D (right) to move</p>
               <p>Press 1, 2, or 3 to select choices when they appear</p>
+              <p>Move from the left side of the screen to the right side to recive your new prompt</p>
             </div>
             
             {/* Game controls */}
@@ -1111,7 +1111,7 @@ export default function GamePage() {
             {!showReport ? (
               <div className="flex flex-col items-center justify-center gap-6">
                 <h1 className="text-6xl font-bold text-red-600 animate-pulse">GAME OVER</h1>
-                <p className="text-2xl text-white">Final Score: {gameScore}</p>
+                <p className="text-2xl text-white">Final Score: {gameScore-1}</p>
               </div>
             ) : (
               <div className="bg-gray-900/80 p-6 rounded-lg max-w-2xl w-full">
@@ -1120,7 +1120,7 @@ export default function GamePage() {
                   <p className="text-lg text-white whitespace-pre-wrap">{gameReport}</p>
                 </div>
                 <div className="text-2xl font-bold text-center mb-6">
-                  <p className="text-white">Final Score: <span className="text-yellow-400">{gameScore}</span></p>
+                  <p className="text-white">Final Score: <span className="text-yellow-400">{gameScore-2}</span></p>
                 </div>
                 <div className="flex gap-4 justify-center">
                   <Button
