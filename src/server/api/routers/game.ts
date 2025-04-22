@@ -21,10 +21,11 @@ interface AIStoryResponse {
   story: string;
   choices: Array<{ id: number; text: string }>;
   backgroundDescription: string;
+  isGameOver: boolean;
 }
 
 // Placeholder function - replace with actual OpenAI API call
-async function generateImageWithAI(prompt: string): Promise<string> {
+async function generateImageWithAI(prompt: string, isSprite: boolean): Promise<string> {
   console.log(`Generating image for prompt: "${prompt}"`);
   if (!env.OPENAI_API_KEY) {
      console.warn("OPENAI_API_KEY not set. Returning placeholder.");
@@ -33,13 +34,23 @@ async function generateImageWithAI(prompt: string): Promise<string> {
   
   try {
     // Actual OpenAI Image Generation Call
-    const response = await openai.images.generate({
-      model: "dall-e-3", // Or any available model
-      prompt: prompt,
-      n: 1,
-      size: "1024x1024",
-    });
-    
+    let response;
+    if(isSprite) {
+      response = await openai.images.generate({
+        model: "dall-e-3", // Or any available model
+        prompt: prompt+"retro style",
+        n: 1,
+        size: "1024x1024",
+      });
+    } else {
+      response = await openai.images.generate({
+        model: "dall-e-3", // Or any available model
+        prompt: prompt+"retro style as if it was the background of a video game, with a path going from left to right",
+        n: 1,
+        size: "1024x1024",
+      });
+    }
+
     const imageUrl = response.data[0]?.url;
     if (!imageUrl) {
       throw new Error("Failed to generate image");
@@ -67,7 +78,8 @@ async function generateStoryWithAI(input: {
        return {
            story: `(Placeholder: API Key Missing) Setting the scene for the ${input.theme ?? 'adventure'}...`,
            choices: [{id: 1, text: "Proceed"}, {id: 2, text: "Look around"}],
-           backgroundDescription: `A placeholder background for ${input.theme ?? 'adventure'}`
+           backgroundDescription: `A placeholder background for ${input.theme ?? 'adventure'}`,
+           isGameOver: false
        }
     }
     
@@ -78,7 +90,7 @@ async function generateStoryWithAI(input: {
     if (messages.length === 0) {
       messages.push({ 
         role: "system", 
-        content: "You are a choose-your-own-adventure game master. Generate engaging story segments with 2-4 choices for the player. For each response, provide a JSON object with three fields: 'story' (the current narrative), 'choices' (an array of options each with 'id' and 'text'), and 'backgroundDescription' (a detailed description for image generation)."
+        content: "You are a choose-your-own-adventure game master. Generate engaging story segments with 3 choices for the player. For each response, provide a JSON object with three fields: 'story' (the current narrative), 'choices' (an array of options each with 'id' and 'text'), and 'backgroundDescription' (a detailed description for image generation).  If the user blunders, they should die and all three of the choices in the json object should be 'game over!'. The game should be easy to die in."
       });
       
       // Add initial theme and character context
@@ -106,10 +118,23 @@ async function generateStoryWithAI(input: {
     
     try {
       // Call OpenAI API
+      console.log("About to call OpenAI API with model: gpt-3.5-turbo");
+      console.log("Messages structure:", JSON.stringify(messages.map(m => ({ 
+        role: m.role, 
+        contentLength: m.content ? m.content.length : 0 
+      }))));
+      
       const response = await openai.chat.completions.create({
-        model: "gpt-4", // Or your desired model
-        messages: messages, // No longer needs 'as any'
+        model: "gpt-3.5-turbo", // Change to gpt-3.5-turbo as a test
+        messages: messages,
         response_format: { type: "json_object" }, // Request JSON response
+      });
+      
+      console.log("OpenAI API response received:", {
+        id: response.id,
+        model: response.model,
+        choicesCount: response.choices.length,
+        firstChoiceContent: response.choices[0]?.message?.content?.substring(0, 100) + "..."
       });
       
       // Parse the response
@@ -143,13 +168,24 @@ async function generateStoryWithAI(input: {
         /* eslint-enable @typescript-eslint/no-unsafe-member-access */
         'backgroundDescription' in result && typeof result.backgroundDescription === 'string'
       ) {
-         return result as AIStoryResponse; // Type assertion is safe now
+         // Check if this is a game over response (all choices are "Game Over")
+         const parsedResult = result as AIStoryResponse;
+         const isGameOverResponse = checkIfGameOver(parsedResult.choices);
+         
+         // Return the result with an indicator if it's a game over
+         parsedResult.isGameOver = isGameOverResponse;
+         return parsedResult;
       } else {
          throw new Error("Invalid response format from AI after parsing.");
       }
 
     } catch (error) {
       console.error("Error calling OpenAI or parsing response:", error);
+      // Log more detailed error information
+      if (error instanceof Error) {
+        console.error(`Error details - Name: ${error.name}, Message: ${error.message}`);
+        console.error(`Stack trace: ${error.stack}`);
+      }
       
       // Fallback to mock data
       const baseStory = input.choice
@@ -164,9 +200,18 @@ async function generateStoryWithAI(input: {
           { id: 2, text: `Option B (${choiceNum}) for ${input.theme ?? 'adventure'}` },
           { id: 3, text: `Option C (${choiceNum}) for ${input.theme ?? 'adventure'}` }
         ],
-        backgroundDescription: `A dynamic background representing the current state (${choiceNum}) in the ${input.theme ?? 'adventure'} adventure.`
+        backgroundDescription: `A dynamic background representing the current state (${choiceNum}) in the ${input.theme ?? 'adventure'} adventure.`,
+        isGameOver: false
       };
     }
+}
+
+// Helper function to check if all choices indicate a game over
+function checkIfGameOver(choices: Array<{id: number; text: string}>): boolean {
+  return choices.length > 0 && 
+    choices.every(choice => 
+      choice.text.toLowerCase().includes("game over")
+    );
 }
 
 export const gameRouter = createTRPCRouter({
@@ -418,18 +463,18 @@ export const gameRouter = createTRPCRouter({
   saveGameSlot: publicProcedure
     .input(
       z.object({
-        slotNumber: z.number().int().min(1).max(3),
-        slotName: z.string().optional(),
+        slotNumber: z.number(),
         gamePhase: z.enum(["sprite", "theme", "playing"]),
-        spriteDescription: z.string().nullish(),
-        spriteUrl: z.string().nullish(),
-        gameTheme: z.string().nullish(),
-        currentStory: z.string().nullish(),
-        currentChoices: z.array(z.object({ id: z.number(), text: z.string() })).nullish(),
-        currentBackgroundDescription: z.string().nullish(),
-        currentBackgroundImageUrl: z.string().nullish(),
-        score: z.number().int().nullish(),
-        spritePosition: z.any().nullish(), // Keep for compatibility
+        slotName: z.string().optional(),
+        spriteDescription: z.string().nullable().optional(),
+        spriteUrl: z.string().nullable().optional(),
+        gameTheme: z.string().nullable().optional(),
+        currentStory: z.string().nullable().optional(),
+        currentChoices: z.array(z.object({ id: z.number(), text: z.string() })).optional(),
+        currentBackgroundDescription: z.string().nullable().optional(),
+        currentBackgroundImageUrl: z.string().nullable().optional(),
+        score: z.number().optional(),
+        spritePosition: z.any().optional(), // Keep as any for compatibility with different position formats
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -647,7 +692,8 @@ export const gameRouter = createTRPCRouter({
       const isLoggedIn = !!(ctx.session && ctx.session.user);
       
       const imageUrl = await generateImageWithAI(
-        `Retro character sprite (front view): ${input.description}`
+        `Retro character sprite (front view): ${input.description}`,
+        true // This is a sprite
       );
       
       return { 
@@ -672,8 +718,24 @@ export const gameRouter = createTRPCRouter({
         spriteDesc: input.spriteDescription,
       });
       const backgroundImageUrl = await generateImageWithAI(
-        initialState.backgroundDescription
+        initialState.backgroundDescription,
+        false // This is a background
       );
+
+      // Check if this is a game over state (shouldn't happen at start, but just in case)
+      if (initialState.isGameOver) {
+        return {
+          initialState: {
+            story: initialState.story,
+            choices: initialState.choices,
+            backgroundDescription: initialState.backgroundDescription,
+          },
+          backgroundImageUrl,
+          warning: isLoggedIn ? undefined : "You are not logged in. Your game progress won't be saved.",
+          gameOver: true,
+          gameOverReason: "Your adventure ended before it could begin!"
+        };
+      }
 
       // Return data needed for frontend to save
       return {
@@ -688,47 +750,134 @@ export const gameRouter = createTRPCRouter({
     }),
 
   // Make Choice - becomes public, generates next state, frontend saves
-  makeChoice: publicProcedure // Changed from protectedProcedure to publicProcedure
+  makeChoice: publicProcedure
     .input(
       z.object({
         choiceId: z.number(),
-        // Ensure these match what the frontend sends
         currentStory: z.string(),
         currentChoices: z.array(
-          z.object({ id: z.number(), text: z.string() }) // Ensure choice objects have id and text
+          z.object({ id: z.number(), text: z.string() })
         ),
         gameTheme: z.string(),
-        spriteDescription: z.string(), // Pass sprite desc if needed by AI
+        spriteDescription: z.string(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // No database operations here, so we just add a warning if not logged in
-      const isLoggedIn = !!(ctx.session && ctx.session.user);
-      
-      const choiceMade =
-        input.currentChoices.find((c) => c.id === input.choiceId)?.text ??
-        "an unknown choice"; // Default text if choice isn't found
+      try {
+        const isLoggedIn = !!(ctx.session && ctx.session.user);
+        
+        // Find the selected choice text
+        const selectedChoice = input.currentChoices.find(
+          (c) => c.id === input.choiceId
+        );
 
-      const nextState = await generateStoryWithAI({
-        previousStory: input.currentStory,
-        choice: choiceMade,
-        theme: input.gameTheme,
-        spriteDesc: input.spriteDescription,
-      });
-      const backgroundImageUrl = await generateImageWithAI(
-        nextState.backgroundDescription
-      );
+        if (!selectedChoice) {
+          throw new Error("Invalid choice selected.");
+        }
 
-      // Return data needed for frontend to save
-      return {
-        nextState: {
-          story: nextState.story,
-          choices: nextState.choices,
-          backgroundDescription: nextState.backgroundDescription,
-        },
-        backgroundImageUrl,
-        warning: isLoggedIn ? undefined : "You are not logged in. Your game progress won't be saved."
-      };
+        // Determine if this choice is a blunder (10% chance randomly)
+        const isBlunder = Math.random() < 0.1;
+
+        if (isBlunder) {
+          // Return game over state
+          return {
+            nextState: {
+              story: "Game Over! You made a fatal mistake.",
+              backgroundDescription: "A dark and gloomy scene.",
+              choices: [
+                { id: 1, text: "Game Over" },
+                { id: 2, text: "Game Over" },
+                { id: 3, text: "Game Over" }
+              ]
+            },
+            backgroundImageUrl: "", // Empty to keep current
+            warning: isLoggedIn ? undefined : "You are not logged in. Your game progress won't be saved.",
+            gameOver: true,
+            gameOverReason: "You made a wrong choice and your adventure ended!"
+          };
+        }
+
+        // Regular game continuation
+        const response = await openai.chat.completions.create({
+          model: "gpt-3.5-turbo",
+          messages: [
+            {
+              role: "system",
+              content: "You are a choose-your-own-adventure game master. Generate engaging story segments with 2-4 choices for the player. For each response, provide a JSON object with three fields: 'story' (the current narrative), 'choices' (an array of options each with 'id' and 'text'), and 'backgroundDescription' (a detailed description for image generation).  If the user blunders, they should die and all three of the choices in the json object should be 'game over!'"
+            },
+            {
+              role: "user",
+              content: `Generate the next part of the story following from: ${input.currentStory}. Include a vivid scene description, what happens next, and 2-4 choices for me. Return your response as a valid JSON object with these fields: "story" (the narrative text), "choices" (array of options with "id" and "text" fields), and "backgroundDescription" (a detailed visual description of the current scene for image generation).`
+            }
+          ],
+          response_format: { type: "json_object" },
+        });
+
+        const content = response.choices[0]?.message?.content;
+        if (!content) {
+          throw new Error("AI response content is missing or empty.");
+        }
+        const nextState = JSON.parse(content) as AIStoryResponse;
+
+        // Check if all choices are "Game Over" to trigger game over sequence
+        const allChoicesAreGameOver = nextState.choices.length > 0 && 
+          nextState.choices.every(choice => 
+            choice.text.toLowerCase().includes("game over")
+          );
+
+        // Mark as game over if all choices are game over
+        nextState.isGameOver = allChoicesAreGameOver;
+
+        // Handle game over state
+        if (nextState.isGameOver) {
+          return {
+            nextState: {
+              story: nextState.story,
+              choices: nextState.choices,
+              backgroundDescription: nextState.backgroundDescription,
+            },
+            backgroundImageUrl: await generateImageWithAI(
+              nextState.backgroundDescription,
+              false
+            ),
+            warning: isLoggedIn ? undefined : "You are not logged in. Your game progress won't be saved.",
+            gameOver: true,
+            gameOverReason: "Your adventure has come to an end!"
+          };
+        }
+
+        const backgroundImageUrl = await generateImageWithAI(
+          nextState.backgroundDescription,
+          false // This is a background
+        );
+
+        return {
+          nextState: {
+            story: nextState.story,
+            choices: nextState.choices,
+            backgroundDescription: nextState.backgroundDescription,
+          },
+          backgroundImageUrl,
+          warning: isLoggedIn ? undefined : "You are not logged in. Your game progress won't be saved."
+        };
+      } catch (error) {
+        console.error("Error generating next state:", error);
+        return {
+          nextState: {
+            story: "Game Over! An error occurred.",
+            backgroundDescription: "A dark and gloomy scene.",
+            choices: [
+              { id: 1, text: "Game Over" },
+              { id: 2, text: "Game Over" },
+              { id: 3, text: "Game Over" }
+            ]
+          },
+          backgroundImageUrl: "",
+          warning: "An error occurred. Your game progress won't be saved.",
+          gameOver: true,
+          gameOverReason: "An error occurred. Please try again later."
+        };
+      }
     }),
 
   // WASD Movement - handle directional movement in the game
@@ -761,6 +910,73 @@ export const gameRouter = createTRPCRouter({
         warning: isLoggedIn ? undefined : "You are not logged in. Your game progress won't be saved."
       };
     }),
+
+  // Delete a game save
+  deleteGameSave: publicProcedure
+    .input(
+      z.object({
+        slotNumber: z.number(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Check if user is authenticated
+      if (!ctx.session || !ctx.session.user) {
+        return { 
+          success: false,
+          message: "User not authenticated"
+        };
+      }
+
+      const userId = ctx.session.user.id;
+
+      // Delete the game save
+      await db
+        .delete(gameSaves)
+        .where(
+          and(
+            eq(gameSaves.userId, userId),
+            eq(gameSaves.slotNumber, input.slotNumber)
+          )
+        );
+
+      return {
+        success: true,
+        message: "Game save deleted successfully"
+      };
+    }),
+
+  // Generate a game report
+  generateGameReport: publicProcedure
+    .input(
+      z.object({
+        score: z.number(),
+        theme: z.string(),
+        spriteDescription: z.string(),
+        reason: z.string(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      try {
+        // Generate report content using AI helper function
+        const reportContent = await generateAIGameReport(
+          input.score,
+          input.theme,
+          input.spriteDescription,
+          input.reason
+        );
+
+        return {
+          success: true,
+          report: reportContent
+        };
+      } catch (error) {
+        console.error("Error generating game report:", error);
+        return {
+          success: false,
+          report: `Game Over! You achieved a score of ${input.score}.\n\nYour adventure as "${input.spriteDescription}" in the world of "${input.theme}" has come to an end.\n\nReason: ${input.reason}`
+        };
+      }
+    }),
 });
 
 // IMPORTANT: Remember to add the UNIQUE index to your database schema for the upsert logic
@@ -774,3 +990,42 @@ export const gameRouter = createTRPCRouter({
 //     userUniqueIdx: uniqueIndex("gameSave_user_unique_idx").on(table.userId), // <-- Add this
 //   })
 // ); 
+
+// Helper function to generate a game report using AI
+async function generateAIGameReport(
+  score: number,
+  theme: string,
+  spriteDescription: string,
+  reason: string
+): Promise<string> {
+  // For now, we'll just generate a simple report without AI
+  // In a real implementation, you would call an AI service here
+  
+  const report = `# GAME OVER
+
+Final Score: ${score}
+
+You played as "${spriteDescription}" in the world of "${theme}".
+
+Your adventure came to an end because: ${reason}
+
+${score > 10 ? "Impressive score! You were doing really well." : "Better luck next time!"}
+
+${generateRandomTip()}
+`;
+
+  return report;
+}
+
+// Generate a random gameplay tip
+function generateRandomTip(): string {
+  const tips = [
+    "Tip: Try to avoid falling off the screen!",
+    "Tip: The more choices you make, the higher your score.",
+    "Tip: Sometimes the safest path is the best path.",
+    "Tip: Pay attention to your surroundings.",
+    "Tip: Different choices lead to different adventures."
+  ];
+  
+  return tips[Math.floor(Math.random() * tips.length)] || "Tip: Practice makes perfect!";
+} 

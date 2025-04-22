@@ -7,9 +7,14 @@ import { Container } from "~/components/Container";
 import { Button } from "~/components/Button";
 import { LoadingIndicator } from "~/components/LoadingIndicator";
 import { PageTitle } from "~/components/PageTitle";
+import { api } from "~/trpc/react";
 
 export default function UserPage() {
   const { data: session, status } = useSession();
+  const { data: userData } = api.user.getUserData.useQuery(
+    undefined,
+    { enabled: status === "authenticated" }
+  );
 
   return (
     <Layout>
@@ -36,6 +41,14 @@ export default function UserPage() {
             <p className="text-lg text-gray-300">
                 Email: {session.user.email ?? "No email provided"}
             </p>
+            
+            <div className="mt-4 bg-purple-900/50 p-4 rounded-lg border border-purple-500">
+              <h3 className="text-xl font-bold text-purple-300 mb-2">Gaming Stats</h3>
+              <p className="text-2xl font-bold text-yellow-400">
+                High Score: {userData?.highScore ?? 0}
+              </p>
+            </div>
+            
             <Button
               variant="secondary"
               onClick={() => void signOut()}

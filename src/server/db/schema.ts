@@ -60,6 +60,7 @@ export const users = createTable("user", {
   email: varchar("email", { length: 255 }).notNull(),
   emailVerified: int("email_verified"),
   image: varchar("image", { length: 255 }),
+  highScore: int("high_score").default(0),
 });
 
 export const usersRelations = relations(users, ({ many }) => ({

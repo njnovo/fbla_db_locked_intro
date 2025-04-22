@@ -14,20 +14,16 @@ import type { TRPCClientErrorLike } from "@trpc/client";
 
 // Physics constants
 const GRAVITY = 0.5;
-const JUMP_FORCE = -10;
-const MOVEMENT_SPEED = 10; // Increased from 5 to 10 for faster movement
-const GROUND_LEVEL = 70; // % from the top of the container
+const JUMP_FORCE = -3;
+const MOVEMENT_SPEED = 2; // Reduced from 10 to 5 for slower movement
+const GROUND_LEVEL = 100; // % from the top of the container
 
 // Define types for game state
+type GamePhase = "slots" | "sprite" | "theme" | "playing" | "loading" | "game-over";
+
 interface Choice {
   id: number;
   text: string;
-}
-
-interface GameState {
-  story: string;
-  choices: Choice[];
-  backgroundDescription: string;
 }
 
 interface SpritePosition {
@@ -38,29 +34,41 @@ interface SpritePosition {
   isGrounded: boolean;
 }
 
+interface GameState {
+  story: string;
+  choices: Choice[];
+  backgroundDescription?: string;
+}
+
 interface SaveSlot {
   slotNumber: number;
   slotName: string;
-  isEmpty: boolean;
+  isEmpty?: boolean;
   gamePhase?: string;
-  spriteDescription?: string | null;
-  spriteUrl?: string | null;
-  gameTheme?: string | null;
-  currentStory?: string | null;
-  currentChoices?: Choice[];
-  currentBackgroundImageUrl?: string | null;
+  spriteDescription?: string;
+  spriteUrl?: string;
+  gameTheme?: string;
   score?: number;
   updatedAt?: number;
 }
 
+interface MakeChoiceResponse {
+  nextState: GameState;
+  backgroundImageUrl: string;
+  warning?: string;
+  gameOver?: boolean;
+  gameOverReason?: string;
+}
+
 type LoadGameError = TRPCClientErrorLike<AppRouter>;
 
+// Add types for the game state
 export default function GamePage() {
   const { data: session, status: sessionStatus } = useSession();
   const gameContainerRef = useRef<HTMLDivElement>(null);
 
   // Game setup states
-  const [gamePhase, setGamePhase] = useState<"slots" | "sprite" | "theme" | "playing" | "loading">("loading");
+  const [gamePhase, setGamePhase] = useState<GamePhase>("loading");
   const [saveSlots, setSaveSlots] = useState<SaveSlot[]>([]);
   const [currentSlot, setCurrentSlot] = useState<number | null>(null);
   const [spriteDescription, setSpriteDescription] = useState("");
@@ -69,6 +77,9 @@ export default function GamePage() {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | null>(null);
   const [gameScore, setGameScore] = useState(0);
+  const [gameReport, setGameReport] = useState<string>("");
+  const [showReport, setShowReport] = useState<boolean>(false);
+  const [stopInput, setStopInput] = useState<string>("");
   
   // New states for 2D platformer mechanics
   const [spritePosition, setSpritePosition] = useState<SpritePosition>({
@@ -314,6 +325,13 @@ export default function GamePage() {
   const makeChoiceMutation = api.game.makeChoice.useMutation({
     onSuccess: (data) => {
         console.log("Choice made, next state:", data);
+        
+        // Check if this is a game over response
+        if (data.gameOver) {
+          handleGameOver(data.gameOverReason || "Your adventure has ended.");
+          return;
+        }
+        
         setTransitioningToNextScene(true);
         
         // Make sure we have exactly 3 choices for our cloud UI
@@ -415,13 +433,20 @@ export default function GamePage() {
           setShowChoiceCloud(true);
         }
         
-        return {
+        // Check for blunders that end the game
+        const newPosition = {
           x: newX,
           y: newY,
           velocityY: newVelocityY,
           velocityX: prev.velocityX,
           isGrounded
         };
+        
+        if (checkForBlunder(newPosition)) {
+          return prev; // Don't update position if blunder detected
+        }
+        
+        return newPosition;
       });
       
       animationFrameId = requestAnimationFrame(gameLoop);
@@ -514,41 +539,46 @@ export default function GamePage() {
     setGamePhase('slots');
   };
 
-  // Helper function to trigger save to the current slot
+  // Function to trigger a save
   const triggerSave = () => {
-    if (sessionStatus !== "authenticated" || gamePhase === 'loading' || gamePhase === 'slots' || currentSlot === null) {
-      console.log("Save prevented because:", { 
-        isAuthenticated: sessionStatus === "authenticated",
-        gamePhase,
-        currentSlot 
-      });
+    if (!session || !session.user || currentSlot === null) {
+      console.log("Can't save: not logged in or no slot selected");
       return;
     }
 
-    const saveData = {
+    // Don't save if we're in game over state
+    if (gamePhase === "game-over") {
+      return;
+    }
+    
+    // Only save in valid save phases
+    if (gamePhase !== "sprite" && gamePhase !== "theme" && gamePhase !== "playing") {
+      console.log("Can't save in current phase:", gamePhase);
+      return;
+    }
+    
+    const now = Math.floor(Date.now() / 1000);
+    
+    console.log("Triggered save with current state:", {
+      slot: currentSlot,
+      phase: gamePhase,
+      score: gameScore
+    });
+    
+    saveGameSlotMutation.mutate({
       slotNumber: currentSlot,
-      slotName: `Game ${gameScore} pts - ${new Date().toLocaleDateString()}`,
-      gamePhase: gamePhase,
-      spriteDescription: spriteDescription ?? null,
-      spriteUrl: spriteUrl ?? null,
-      gameTheme: gameTheme ?? null,
+      slotName: `Slot ${currentSlot}`,
+      gamePhase: gamePhase, // This is now type-safe
+      spriteDescription,
+      spriteUrl,
+      gameTheme,
       currentStory: gameState?.story ?? null,
       currentChoices: gameState?.choices ?? [],
       currentBackgroundDescription: gameState?.backgroundDescription ?? null,
-      currentBackgroundImageUrl: backgroundImageUrl ?? null,
+      currentBackgroundImageUrl: backgroundImageUrl,
       score: gameScore,
-    };
-    
-    // Double check we're actually saving something useful
-    console.log("Save data quality check:", {
-      hasValidSlot: currentSlot > 0 && currentSlot <= 3,
-      hasSprite: !!spriteUrl,
-      hasTheme: !!gameTheme,
-      gamePhase
+      spritePosition
     });
-    
-    console.log("Triggering save with data:", saveData);
-    saveGameSlotMutation.mutate(saveData);
   };
 
   // Add an effect to log saveSlots whenever they change
@@ -590,6 +620,94 @@ export default function GamePage() {
   // Handle loading a saved game from a slot
   const handleLoadGame = (slotNumber: number) => {
     setSlotToLoad(slotNumber);
+  };
+
+  // Function to handle game over
+  const handleGameOver = (reason: string) => {
+    // Set game over state
+    setGamePhase("game-over");
+
+    // If user is logged in, update high score
+    if (session && session.user && currentSlot !== null) {
+      // Check if current score is a high score
+      updateHighScoreMutation.mutate({
+        score: gameScore,
+      });
+
+      // Delete the game save
+      deleteGameSaveMutation.mutate({
+        slotNumber: currentSlot,
+      });
+    }
+
+    // Generate game report
+    generateGameReportMutation.mutate({
+      score: gameScore,
+      theme: gameTheme || "unknown",
+      spriteDescription: spriteDescription || "unknown character",
+      reason,
+    });
+  };
+
+  // Function to detect a "blunder" (adding this to handle when the user dies)
+  const checkForBlunder = (position: SpritePosition) => {
+    // Example conditions for a blunder - falling off the screen
+    if (position.y > 150) { // If sprite falls below the screen
+      handleGameOver("You fell off the screen!");
+      return true;
+    }
+    
+    // Other blunder conditions can be added here
+    return false;
+  };
+
+  // Game report generation mutation
+  const generateGameReportMutation = api.game.generateGameReport.useMutation({
+    onSuccess: (data) => {
+      setGameReport(data.report);
+      // Show the report after 1 second of game over screen
+      setTimeout(() => {
+        setShowReport(true);
+      }, 1000);
+    },
+    onError: (error) => {
+      console.error("Error generating game report:", error);
+      setGameReport("Failed to generate game report.");
+      setTimeout(() => {
+        setShowReport(true);
+      }, 1000);
+    }
+  });
+
+  // Update high score mutation
+  const updateHighScoreMutation = api.user.updateHighScore.useMutation({
+    onSuccess: (data) => {
+      console.log("High score updated:", data);
+    },
+    onError: (error) => {
+      console.error("Error updating high score:", error);
+    }
+  });
+
+  // Delete game save mutation
+  const deleteGameSaveMutation = api.game.deleteGameSave.useMutation({
+    onSuccess: () => {
+      console.log("Game save deleted");
+    },
+    onError: (error) => {
+      console.error("Error deleting game save:", error);
+    }
+  });
+
+  // Function to handle the stop input
+  const handleStopInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setStopInput(value);
+    
+    // Check if the input is "stop" to trigger game over
+    if (value.toLowerCase() === "stop") {
+      handleGameOver("You decided to stop the adventure.");
+    }
   };
 
   // --- Render Logic ---
@@ -903,7 +1021,7 @@ export default function GamePage() {
                 >
                   <div className="text-white text-xs font-medium mb-1">Choose your next action:</div>
                   <ul className="text-white text-xs space-y-1">
-                    {gameState.choices.slice(0, 3).map((choice) => (
+                    {(makeChoiceMutation.data?.nextState.choices || gameState?.choices || []).slice(0, 3).map((choice) => (
                       <li key={choice.id} className="hover:bg-gray-700 p-1 rounded cursor-pointer">
                         <span className="font-bold mr-1">{choice.id}.</span> {choice.text}
                       </li>
@@ -965,6 +1083,17 @@ export default function GamePage() {
               </Button>
             </div>
 
+            {/* Emergency stop input */}
+            <div className="mt-4 w-full max-w-xs">
+              <input
+                type="text"
+                value={stopInput}
+                onChange={handleStopInputChange}
+                placeholder="Type 'stop' to end game"
+                className="w-full p-2 rounded bg-white/20 text-black border border-gray-400 text-center"
+              />
+            </div>
+
             {/* Save slot info */}
             {currentSlot && (
               <div className="text-xs text-gray-400 mt-2">
@@ -976,8 +1105,47 @@ export default function GamePage() {
           </div>
         );
 
+      case "game-over":
+        return (
+          <div className="flex flex-col items-center justify-center w-full h-full">
+            {!showReport ? (
+              <div className="flex flex-col items-center justify-center gap-6">
+                <h1 className="text-6xl font-bold text-red-600 animate-pulse">GAME OVER</h1>
+                <p className="text-2xl text-white">Final Score: {gameScore}</p>
+              </div>
+            ) : (
+              <div className="bg-gray-900/80 p-6 rounded-lg max-w-2xl w-full">
+                <h2 className="text-3xl font-bold text-purple-400 mb-4">Game Report</h2>
+                <div className="bg-black/50 p-4 rounded-lg mb-6">
+                  <p className="text-lg text-white whitespace-pre-wrap">{gameReport}</p>
+                </div>
+                <div className="text-2xl font-bold text-center mb-6">
+                  <p className="text-white">Final Score: <span className="text-yellow-400">{gameScore}</span></p>
+                </div>
+                <div className="flex gap-4 justify-center">
+                  <Button
+                    variant="primary"
+                    onClick={handleReturnToSlots}
+                    className="text-lg"
+                  >
+                    Play Again
+                  </Button>
+                  <Link href="/user">
+                    <Button
+                      variant="secondary"
+                      className="text-lg"
+                    >
+                      View Profile
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+
       default:
-        return <div>Invalid game state.</div>;
+        return <div>Unknown game phase: {gamePhase}</div>;
     }
   };
 
